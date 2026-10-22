@@ -6,6 +6,7 @@
 // that storage persistent, and on later visits reloads the model from the cache
 // automatically, so the download happens once per device.
 import type { MLCEngine } from '@mlc-ai/web-llm';
+import { BROWSER_MODEL_OPTIONS } from './config';
 
 let enginePromise: Promise<MLCEngine> | null = null;
 let loadedModelId: string | null = null;
@@ -141,4 +142,66 @@ export const completeWithWebLlm = async (
     response_format: { type: 'json_object' },
   });
   return response.choices[0]?.message?.content ?? null;
+};
+
+// Storage names WebLLM and its TVM runtime create (Cache Storage, IndexedDB). Only these are removed.
+const LOCAL_AI_STORE = /^(webllm|tvmjs)/;
+
+const storageUsed = async (): Promise<number | null> => {
+  try {
+    return (await navigator.storage?.estimate?.())?.usage ?? null;
+  } catch {
+    return null;
+  }
+};
+
+/** Every offered model (plus the remembered one) whose weights are on this device. */
+export const cachedModels = async (): Promise<string[]> => {
+  const candidates = [...new Set([...BROWSER_MODEL_OPTIONS, rememberedBrowserModel()].filter((m): m is string => Boolean(m)))];
+  const found: string[] = [];
+  for (const m of candidates) if (await isModelCached(m)) found.push(m);
+  return found;
+};
+
+export type UninstallResult = { removedModels: string[]; freedBytes: number | null };
+
+/**
+ * Uninstalls the local AI: unloads the model from memory, forgets the
+ * auto-load choice, deletes every cached model, then removes any remaining
+ * WebLLM storage (Cache Storage and IndexedDB). Study progress, settings and
+ * API keys are untouched.
+ */
+export const uninstallLocalAI = async (): Promise<UninstallResult> => {
+  const before = await storageUsed();
+  const engine = enginePromise;
+  enginePromise = null;
+  loadedModelId = null;
+  readyModelId = null;
+  await engine?.then((e) => e.unload()).catch(() => undefined);
+  remember(null);
+
+  const removedModels = await cachedModels();
+  try {
+    const { deleteModelAllInfoInCache } = await import('@mlc-ai/web-llm');
+    for (const m of removedModels) await deleteModelAllInfoInCache(m).catch(() => undefined);
+  } catch {
+    // The sweep below still removes the files.
+  }
+  try {
+    if (typeof caches !== 'undefined') {
+      for (const name of await caches.keys()) if (LOCAL_AI_STORE.test(name)) await caches.delete(name);
+    }
+  } catch {
+    // Cache Storage unavailable; nothing to remove there.
+  }
+  try {
+    const dbs = (await indexedDB?.databases?.()) ?? [];
+    for (const db of dbs) if (db.name && LOCAL_AI_STORE.test(db.name)) indexedDB.deleteDatabase(db.name);
+  } catch {
+    // IndexedDB listing unsupported; WebLLM's default backend is Cache Storage.
+  }
+
+  notify();
+  const after = await storageUsed();
+  return { removedModels, freedBytes: before !== null && after !== null ? Math.max(0, before - after) : null };
 };

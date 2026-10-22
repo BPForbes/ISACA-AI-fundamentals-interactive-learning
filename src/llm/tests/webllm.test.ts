@@ -16,6 +16,9 @@ vi.mock('@mlc-ai/web-llm', () => ({
 
 const store = new Map<string, string>();
 const persist = vi.fn(async () => true);
+const cacheNames = new Set<string>();
+const dbNames = new Set<string>();
+let used = 0;
 
 beforeEach(() => {
   vi.resetModules();
@@ -28,7 +31,20 @@ beforeEach(() => {
     setItem: (k: string, v: string) => store.set(k, v),
     removeItem: (k: string) => store.delete(k),
   });
-  vi.stubGlobal('navigator', { gpu: {}, storage: { persist } });
+  vi.stubGlobal('navigator', { gpu: {}, storage: { persist, estimate: async () => ({ usage: used }) } });
+  cacheNames.clear();
+  dbNames.clear();
+  vi.stubGlobal('caches', {
+    keys: async () => [...cacheNames],
+    delete: async (n: string) => {
+      used -= 1e9;
+      return cacheNames.delete(n);
+    },
+  });
+  vi.stubGlobal('indexedDB', {
+    databases: async () => [...dbNames].map((name) => ({ name })),
+    deleteDatabase: (n: string) => dbNames.delete(n),
+  });
 });
 
 afterEach(() => vi.unstubAllGlobals());
@@ -78,5 +94,38 @@ describe('cached in-browser model', () => {
     expect(m.isBrowserModelReady(MODEL)).toBe(false);
     expect(m.rememberedBrowserModel()).toBeNull();
     expect(await m.isModelCached(MODEL)).toBe(false);
+  });
+});
+
+describe('uninstalling the local AI', () => {
+  it('removes every model and WebLLM store, and nothing of the app', async () => {
+    const m = await import('../webllm');
+    await m.preloadBrowserModel(MODEL);
+    cache.add('Qwen2.5-7B-Instruct-q4f16_1-MLC');
+    ['webllm/model', 'webllm/config', 'webllm/wasm', 'app-other-cache'].forEach((n) => cacheNames.add(n));
+    ['tvmjs-opfs-store', 'isaca-quest-db'].forEach((n) => dbNames.add(n));
+    store.set('isaca-quest-session-v1', '{"progress":{}}');
+    used = 6e9;
+    const changed = vi.fn();
+    m.onBrowserModelChange(changed);
+
+    const result = await m.uninstallLocalAI();
+
+    expect(result.removedModels.sort()).toEqual([MODEL, 'Qwen2.5-7B-Instruct-q4f16_1-MLC'].sort());
+    expect(result.freedBytes).toBe(3e9);
+    expect(cache.size).toBe(0);
+    expect([...cacheNames]).toEqual(['app-other-cache']);
+    expect([...dbNames]).toEqual(['isaca-quest-db']);
+    expect(m.isBrowserModelReady(MODEL)).toBe(false);
+    expect(m.rememberedBrowserModel()).toBeNull();
+    expect(store.get('isaca-quest-session-v1')).toBe('{"progress":{}}');
+    expect(changed).toHaveBeenCalled();
+    // Nothing comes back on the next visit.
+    expect(await m.restoreCachedBrowserModel()).toBeNull();
+  });
+
+  it('is harmless when nothing is installed', async () => {
+    const m = await import('../webllm');
+    expect((await m.uninstallLocalAI()).removedModels).toEqual([]);
   });
 });

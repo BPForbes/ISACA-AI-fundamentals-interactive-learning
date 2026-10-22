@@ -65,8 +65,9 @@ Provider notes:
 - **OpenRouter**: only `:free` models are listed; about 50 free requests a day without credits.
 
 The in-browser model is downloaded once and kept in the browser's cache storage (the app asks the browser to keep
-it persistent), so later visits load it from disk with no download. **Remove from this device** in Settings frees
-the space.
+it persistent), so later visits load it from disk with no download. **Remove this model** in Settings frees
+the space for one model; **Uninstall local AI** removes every downloaded model and WebLLM's files (study progress,
+settings and keys stay). Ollama models are removed with `ollama rm <model>`.
 
 Free tiers and model names change often, so the app reads each provider's live model list rather than hard-coding
 it.

@@ -4,7 +4,7 @@ import { BROWSER_MODEL_OPTIONS, type LlmMode, type LlmSettings } from '../llm/co
 import {
   chooseModel, completeWithHosted, HOSTED_PROVIDERS, listHostedModels, modelOf, vaultSupports, type HostedConfig, type HostedProviderId,
 } from '../llm/hosted';
-import { hasWebGpu, isBrowserModelReady, isModelCached, preloadBrowserModel, removeCachedBrowserModel } from '../llm/webllm';
+import { cachedModels, hasWebGpu, isBrowserModelReady, isModelCached, preloadBrowserModel, removeCachedBrowserModel, uninstallLocalAI } from '../llm/webllm';
 import { deleteVaultKey, isCloudConfigured, listVaultKeys, uploadVaultKey, type CloudConfig, type StoredKey } from '../sync/cloud';
 
 type Props = {
@@ -113,6 +113,27 @@ export function SettingsPanel({ llm, onLlm, cloud, onCloud, onLoadCloud, save, h
       active = false;
     };
   }, [llm.browserModel, ready]);
+
+  const [installed, setInstalled] = useState<string[]>([]);
+  useEffect(() => {
+    let active = true;
+    void cachedModels().then((m) => active && setInstalled(m));
+    return () => {
+      active = false;
+    };
+  }, [cached, ready]);
+
+  const uninstall = async () => {
+    if (!window.confirm('Uninstall the local AI? Every downloaded model is deleted from this device. Your study progress, settings and keys are kept.')) return;
+    setLoading(true);
+    const result = await uninstallLocalAI();
+    setLoading(false);
+    setInstalled([]);
+    setCached(false);
+    if (llm.mode === 'browser') onLlm({ ...llm, mode: 'auto' });
+    const freed = result.freedBytes !== null ? ` Freed about ${(result.freedBytes / 1e9).toFixed(1)} GB.` : '';
+    setProgress(`Local AI uninstalled${result.removedModels.length ? `: removed ${result.removedModels.join(', ')}` : ''}.${freed}`);
+  };
 
   const remove = async () => {
     if (!window.confirm(`Remove ${llm.browserModel} from this device? It will need to download again to use it.`)) return;
@@ -250,13 +271,26 @@ export function SettingsPanel({ llm, onLlm, cloud, onCloud, onLoadCloud, save, h
           <button onClick={load} disabled={loading || ready || !hasWebGpu()}>
             {ready ? 'Loaded' : loading ? 'Loading…' : cached ? 'Load from cache' : 'Download and cache'}
           </button>
-          {cached && <button className="ghost" onClick={remove} disabled={loading}>Remove from this device</button>}
+          {cached && <button className="ghost" onClick={remove} disabled={loading}>Remove this model</button>}
+        </div>
+        <div className="uninstall">
+          <p className="small">
+            {installed.length
+              ? `Installed on this device: ${installed.join(', ')}.`
+              : 'No local AI model is installed on this device.'}
+          </p>
+          <button className="danger" onClick={uninstall} disabled={loading || (installed.length === 0 && !ready)}>Uninstall local AI</button>
+          <small>Deletes every downloaded model and WebLLM's files. Progress, settings and keys stay.</small>
         </div>
         {progress && <p className="small" role="status">{progress}</p>}
 
         <h2>Ollama</h2>
         <label className="field">URL<input value={llm.ollamaUrl} onChange={(e) => onLlm({ ...llm, ollamaUrl: e.target.value })} /></label>
         <label className="field">Model<input value={llm.ollamaModel} onChange={(e) => onLlm({ ...llm, ollamaModel: e.target.value })} /></label>
+        <p className="small">
+          Ollama models live in Ollama, not in this page. To uninstall one, run <code>ollama rm {llm.ollamaModel}</code>;
+          to remove Ollama entirely, uninstall the Ollama app.
+        </p>
       </section>
 
       <section className="card">

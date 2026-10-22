@@ -186,6 +186,8 @@ td.lvl-proficient, td.lvl-mastered { color: var(--good); }
 .gate { padding: 0.5rem 0.7rem; border-radius: 8px; background: var(--panel-2); border-left: 3px solid var(--accent); }
 .gate.hold { border-left-color: var(--warn); }
 .gate small { display: block; }
+.uninstall { display: grid; gap: 0.35rem; justify-items: start; border-top: 1px solid var(--line); margin-top: 0.8rem; padding-top: 0.6rem; }
+button.danger { border-color: var(--bad); color: var(--bad); background: transparent; }
 .defer { border: 1px dashed var(--line); border-radius: 10px; padding: 0.6rem; }
 
 /* Modal */
