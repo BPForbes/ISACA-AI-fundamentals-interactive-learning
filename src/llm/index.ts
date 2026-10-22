@@ -8,30 +8,36 @@ import { judgeRules, parseCritic } from '../engine/discriminator';
 import { extractJson, sanitizeScene, shuffleChoices, type Scene, type SceneReview } from '../engine/scene';
 import { completeWithCloud, isCloudConfigured, type CloudConfig } from '../sync/cloud';
 import type { LlmSettings } from './config';
+import { completeWithHosted, isHostedConfigured, type HostedConfig } from './hosted';
 import { completeWithOllama } from './ollama';
 import { buildCriticPrompt, buildNotePrompt, buildScenePrompt } from './prompt';
 import { completeWithWebLlm, isBrowserModelReady } from './webllm';
 
-export type Backend = 'browser' | 'ollama' | 'cloud' | 'offline';
+export type Backend = 'hosted' | 'browser' | 'ollama' | 'cloud' | 'offline';
 
-/** "auto" prefers a browser model already loaded this session, then the cloud model. */
-export const activeBackend = (s: LlmSettings, cloud: CloudConfig): Backend => {
+export type Backends = { cloud: CloudConfig; hosted: HostedConfig };
+
+/** "auto" prefers a free hosted model, then a browser model loaded this session, and Cloudflare last. */
+export const activeBackend = (s: LlmSettings, b: Backends): Backend => {
   if (s.mode === 'auto') {
+    if (isHostedConfigured(b.hosted)) return 'hosted';
     if (isBrowserModelReady(s.browserModel)) return 'browser';
-    if (isCloudConfigured(cloud)) return 'cloud';
+    if (isCloudConfigured(b.cloud)) return 'cloud';
     return 'offline';
   }
   return s.mode;
 };
 
-const complete = async (backend: Backend, s: LlmSettings, cloud: CloudConfig, system: string, user: string, maxTokens: number) => {
+const complete = async (backend: Backend, s: LlmSettings, b: Backends, system: string, user: string, maxTokens: number) => {
   switch (backend) {
+    case 'hosted':
+      return completeWithHosted(b.hosted, system, user, maxTokens);
     case 'browser':
       return completeWithWebLlm(s.browserModel, system, user, maxTokens);
     case 'ollama':
       return completeWithOllama(s.ollamaUrl, s.ollamaModel, system, user);
     case 'cloud':
-      return completeWithCloud(cloud, system, user, maxTokens);
+      return completeWithCloud(b.cloud, system, user, maxTokens);
     default:
       return null;
   }
@@ -49,11 +55,11 @@ export type SceneResult = { scene: Scene; fallbackReason?: string };
 export const generateScene = async (
   req: SceneRequest,
   s: LlmSettings,
-  cloud: CloudConfig,
+  b: Backends,
   rng: () => number = Math.random,
 ): Promise<SceneResult> => {
   const template = generateOfflineScene(req, rng);
-  const backend = activeBackend(s, cloud);
+  const backend = activeBackend(s, b);
   // Calculation scenes need exact arithmetic, which small models get wrong.
   if (backend === 'offline' || req.mode === 'calculation') return { scene: template };
 
@@ -63,7 +69,7 @@ export const generateScene = async (
     let candidate: Scene | null = null;
     try {
       const { system, user } = buildScenePrompt(req, template, feedback);
-      const content = await complete(backend, s, cloud, system, user, 900);
+      const content = await complete(backend, s, b, system, user, 900);
       const sane = content ? sanitizeScene(extractJson(content)) : null;
       candidate = sane ? { ...sane, choices: shuffleChoices(sane.choices, rng), source: 'ai' } : null;
     } catch (error) {
@@ -86,7 +92,7 @@ export const generateScene = async (
     if (s.discriminator === 'rules+ai') {
       try {
         const { system, user } = buildCriticPrompt(req, candidate);
-        const content = await complete(backend, s, cloud, system, user, 300);
+        const content = await complete(backend, s, b, system, user, 300);
         const verdict = content ? parseCritic(extractJson(content), candidate.choices.map((c) => c.id)) : null;
         const keyed = candidate.choices.find((c) => c.correct)!.id;
         if (!verdict) critic = 'unavailable';
@@ -130,13 +136,13 @@ export const evaluateNote = async (
   choiceText: string,
   note: string,
   s: LlmSettings,
-  cloud: CloudConfig,
+  b: Backends,
 ): Promise<NoteVerdict> => {
-  const backend = activeBackend(s, cloud);
+  const backend = activeBackend(s, b);
   if (backend === 'offline') return offlineVerdict(req, note);
   try {
     const { system, user } = buildNotePrompt(req, choiceText, note);
-    const content = await complete(backend, s, cloud, system, user, 300);
+    const content = await complete(backend, s, b, system, user, 300);
     const raw = content ? (extractJson(content) as Record<string, unknown> | null) : null;
     const verdict = raw?.verdict;
     const feedback = typeof raw?.feedback === 'string' ? raw.feedback.trim().slice(0, 800) : '';

@@ -5,6 +5,7 @@ import type { Choice, Scene } from './engine/scene';
 import { fitTracker, type GateDecision, type TrackerModel } from './engine/tracker';
 import { loadLlmSettings, saveLlmSettings, type LlmSettings } from './llm/config';
 import { activeBackend, evaluateNote, generateScene, type NoteVerdict } from './llm';
+import { loadHostedConfig, saveHostedConfig, type HostedConfig } from './llm/hosted';
 import {
   answerScene, applyRemote, beginExpedition, buildSavePayload, deferCurrentStep, hasUnsavedChanges,
   leaveCamp, loadDraft, markSaved, newSession, recordNote, saveDraft, type SessionState,
@@ -31,6 +32,7 @@ export default function App() {
   const [session, setSession] = useState<SessionState>(() => loadDraft() ?? newSession(nowIso(), newId()));
   const [llm, setLlm] = useState<LlmSettings>(loadLlmSettings);
   const [cloud, setCloud] = useState<CloudConfig>(loadCloudConfig);
+  const [hosted, setHosted] = useState<HostedConfig>(loadHostedConfig);
   const [view, setView] = useState<View>('map');
   const [scene, setScene] = useState<Scene | null>(null);
   const [req, setReq] = useState<SceneRequest | null>(null);
@@ -74,6 +76,8 @@ export default function App() {
   }, [historyLength]);
   useEffect(() => saveLlmSettings(llm), [llm]);
   useEffect(() => saveCloudConfig(cloud), [cloud]);
+  useEffect(() => saveHostedConfig(hosted), [hosted]);
+  const backends = useMemo(() => ({ cloud, hosted }), [cloud, hosted]);
 
   // Warn before leaving with work that has not been saved to the cloud.
   useEffect(() => {
@@ -85,7 +89,7 @@ export default function App() {
   }, [cloud, session]);
 
   const progressOf = useCallback((id: string) => session.progress[id], [session.progress]);
-  const backend = activeBackend(llm, cloud);
+  const backend = activeBackend(llm, backends);
   const recommended = useMemo(() => recommendChain(progressOf, session.remediation), [progressOf, session.remediation]);
 
   const loadScene = useCallback(async (state: SessionState) => {
@@ -97,12 +101,12 @@ export default function App() {
     setAnswered(null);
     setVerdict(null);
     setLoading(true);
-    const result = await generateScene(request, llm, cloud);
+    const result = await generateScene(request, llm, backends);
     if (token !== sceneToken.current) return;
     setScene(result.scene);
     setNotice(result.fallbackReason ? `Using the offline story engine for this scene. ${result.fallbackReason}` : null);
     setLoading(false);
-  }, [llm, cloud]);
+  }, [llm, backends]);
 
   const start = (chainId: string) => {
     const exp = startExpedition(chainId, { lastKind: session.lastKind, now: nowIso(), rng: Math.random });
@@ -124,7 +128,7 @@ export default function App() {
 
   const submitNote = async (note: string) => {
     if (!req || !answered || !note.trim()) return;
-    const v = await evaluateNote(req, answered.choice.text, note, llm, cloud);
+    const v = await evaluateNote(req, answered.choice.text, note, llm, backends);
     setVerdict(v);
     setSession((s) => recordNote(s, req.anchor.id, note, v.verdict, nowIso()));
   };
@@ -212,6 +216,8 @@ export default function App() {
             onLlm={setLlm}
             cloud={cloud}
             onCloud={setCloud}
+            hosted={hosted}
+            onHosted={setHosted}
             onLoadCloud={loadFromCloud}
             save={save}
           />

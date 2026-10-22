@@ -81,7 +81,8 @@ export function Journal({ session, tracker, cloudReady, onSave, onEndSession }: 
                     <td>{p && p.recent.length ? `${Math.round(recentAccuracy(p) * 100)}%` : '—'}</td>
                     <td>{p?.attempts ?? 0}</td>
                     <td>{(() => {
-                      const f = tracker && byConcept.get(t.id) ? forecast(tracker, byConcept.get(t.id)!) : null;
+                      // An untrained model's output is just its random starting weights.
+                      const f = tracker && tracker.trainedOn > 0 && byConcept.get(t.id) ? forecast(tracker, byConcept.get(t.id)!) : null;
                       return f ? `${Math.round(f.pNext * 100)}% · ${f.trend}` : '—';
                     })()}</td>
                   </tr>

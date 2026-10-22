@@ -1,9 +1,9 @@
-// Model backend preferences. Like the QPU lab, the browser model is the
-// preferred AI path because it needs no server once cached; Ollama serves a
-// local model, and "cloud" asks the Cloudflare Worker's Workers AI binding.
-// "auto" uses whichever AI is ready and otherwise the offline generator.
+// Model backend preferences. "auto" uses the strongest AI that is ready, in
+// this order: a free hosted model (with the learner's own key), the in-browser
+// model once loaded, then the Cloudflare Worker's Workers AI as a last resort,
+// and otherwise the offline generator. Ollama is used only when chosen.
 
-export type LlmMode = 'auto' | 'browser' | 'ollama' | 'cloud' | 'offline';
+export type LlmMode = 'auto' | 'hosted' | 'browser' | 'ollama' | 'cloud' | 'offline';
 
 // How AI scenes are checked before they are shown: rules only, or rules plus a blind AI critic.
 export type DiscriminatorMode = 'rules' | 'rules+ai';
@@ -20,9 +20,12 @@ export type LlmSettings = {
 
 const STORAGE_KEY = 'isaca-quest-llm-settings-v1';
 
+// Larger models write better scenes but need more GPU memory (roughly: 7–8B ≈ 5–6 GB, 3B ≈ 2.5 GB).
 export const BROWSER_MODEL_OPTIONS = [
   'Llama-3.2-3B-Instruct-q4f16_1-MLC',
   'Qwen2.5-3B-Instruct-q4f16_1-MLC',
+  'Qwen2.5-7B-Instruct-q4f16_1-MLC',
+  'Llama-3.1-8B-Instruct-q4f16_1-MLC',
   'Llama-3.2-1B-Instruct-q4f16_1-MLC',
 ] as const;
 
@@ -40,7 +43,7 @@ export const defaultLlmSettings = (): LlmSettings => ({
   ollamaModel: DEFAULT_OLLAMA_MODEL,
 });
 
-const MODES: LlmMode[] = ['auto', 'browser', 'ollama', 'cloud', 'offline'];
+const MODES: LlmMode[] = ['auto', 'hosted', 'browser', 'ollama', 'cloud', 'offline'];
 
 const str = (v: unknown, fallback: string) => (typeof v === 'string' && v.trim() ? v.trim() : fallback);
 

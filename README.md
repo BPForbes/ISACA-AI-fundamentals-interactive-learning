@@ -1,94 +1,138 @@
-# ISACA AI Fundamentals — Lifecycle Expedition
+<div align="center">
 
-An AI-driven study adventure for the ISACA AI Fundamentals exam, Chapters 1–5. It is not a quiz: you play an
-advisor to a team, every decision has a consequence in the story, and the story only moves on once the concept at
-each link holds up.
+# ◆ Lifecycle Expedition
+
+### An AI-driven adventure for studying ISACA AI Fundamentals, Chapters 1–5
+
+**[▶ Play it: bpforbes.github.io/ISACA-AI-fundamentals-interactive-learning](https://bpforbes.github.io/ISACA-AI-fundamentals-interactive-learning/)**
+
+[![Test and deploy](https://github.com/BPForbes/ISACA-AI-fundamentals-interactive-learning/actions/workflows/deploy-pages.yml/badge.svg)](https://github.com/BPForbes/ISACA-AI-fundamentals-interactive-learning/actions/workflows/deploy-pages.yml)
+![React](https://img.shields.io/badge/React-19-149eca)
+![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
+</div>
+
+You advise a team through a real-world AI decision. Every choice has a consequence in the story, the story only moves
+on once the concept at each step holds up, and an AI writes the scenes while a second layer checks them against the
+exam definitions. It is not a quiz; it is the whole AI lifecycle, played.
+
+<p align="center"><img src="docs/images/scene.png" alt="An AI-written scene: a deepfake of a city mayor, four choices, the consequence and the move-on decision" width="820"></p>
+
+---
+
+## Contents
+
+- [How it plays](#how-it-plays)
+- [Getting a powerful AI for free](#getting-a-powerful-ai-for-free)
+- [How scenes are made: a GAN-inspired loop](#how-scenes-are-made-a-gan-inspired-loop)
+- [Knowing when to move on: rules + LSTM](#knowing-when-to-move-on-rules--lstm)
+- [Saving your progress](#saving-your-progress)
+- [Development](#development)
 
 ## How it plays
 
-- **Five regions, ten expeditions.** Each expedition is one of the ten integration chains from the study guide
-  (for example *Confusion matrix → model metric → KPI → KGI → scorecard*). Every scene scores one **anchor**
-  concept; other chapters appear only to explain it, so the topic stays locked.
-- **Decisions with consequences.** Choices move the team's trust, budget and risk meters, and the consequence of
-  each choice is carried into the next scene. A miss keeps the same anchor in play, re-asked from a new angle,
-  until it is answered (or parked in the rematch queue after three misses).
-- **The tutor picks the teaching mode** from your evidence: Diagnostic for new concepts, Contrast drills for
-  near-miss confusions (from the guide's "do not confuse" table), Calculation drills for confusion-matrix metrics,
-  Integration drills once a term is in natural use, Remediation after repeated misses, Maintenance when proficient.
-- **Points = Base × Risk × Topic bonus × √streak.** Stake 0.25×–4× confidence on each decision. Stakes above 1×
-  cost points on a miss; 1× or less is always safe. Points never mark a topic mastered.
-- **Two kinds of progress per concept:** mastery level (Unknown → Familiar → Competent → Proficient → Mastered)
-  and the terminology ladder (Introduce → Scaffold → Conversational use → Transfer, or Recovery when it slips).
-  Familiar settings come from your own projects as analogies; unfamiliar sectors prove transfer.
-- **Camp** every six scenes: the guide's queue refresh, and the natural moment to save.
-- **Journal**: every term with its level and stage, and the end-of-session study context (YAML) to download.
+<p align="center"><img src="docs/images/map.png" alt="The expedition map: five chapter regions and ten expeditions" width="820"></p>
 
-## AI scenario writing: a GAN-inspired loop
+| | |
+| --- | --- |
+| 🗺️ **Five regions, ten expeditions** | Each expedition is one integration chain from the study guide, such as *confusion matrix → model metric → KPI → KGI → scorecard*. Every scene tests one **anchor** concept and draws on other chapters only to explain it. |
+| ⚖️ **Decisions with consequences** | Choices move the team's trust, budget and risk. What happens carries into the next scene. A miss keeps the concept in play, asked from a new angle. |
+| 🎓 **A tutor that adapts** | The teaching mode follows your evidence: Diagnostic for new terms, Contrast drills for near-miss confusions, Calculation drills for metrics, Integration once a term is in natural use, Remediation after repeated misses. |
+| 🔥 **Points that mean something** | Points = Base × Confidence stake × Topic bonus × √streak. Stake 0.25×–4× on each call; stakes above 1× cost points on a miss. Points never mark a topic as mastered. |
+| 🧭 **Two kinds of progress** | Mastery level (Unknown → Mastered) and the terminology ladder (Introduce → Scaffold → Conversational use → Transfer, or Recovery when it slips). |
+| ⛺ **Camp every six scenes** | A short look back (score, accuracy, rematch queue, what comes next) and the natural moment to save. |
+| 📓 **Journal** | Every term with its level, stage and forecast, plus your end-of-session study context as YAML. |
 
-Scenes are made by a generator and checked by a discriminator before you see them:
+## Getting a powerful AI for free
 
-1. **Template.** The offline engine builds a scene for the link straight from the term bank. It is the "real"
+The game works with no AI at all (the offline engine writes scenes from the term bank), but scenes are far better
+from a large model. In **Settings → Scenario AI**, **Auto** picks the strongest one that is ready, in this order:
+
+| Order | Option | Model size | Cost | Set up |
+| :-: | --- | --- | --- | --- |
+| 1 | **Free hosted model** (recommended) | Large: `openai/gpt-oss-120b` on Groq by default | Free tier, no card | Get a free key from [Groq](https://console.groq.com/keys), [Google AI Studio](https://aistudio.google.com/apikey) or [OpenRouter](https://openrouter.ai/keys), paste it in Settings, press **Load model list** |
+| 2 | **In-browser model** (WebLLM) | 1B–8B, runs on your GPU | Free, fully private | Settings → pick a model → **Load model** (1–5 GB download, needs WebGPU) |
+| — | **Ollama** | Whatever you run locally | Free | `ollama serve`, then choose Ollama in Settings |
+| 3 | **Cloudflare Workers AI** (last resort) | 8B by default | Cloudflare free allocation, then paid | Deploy the [`worker/`](worker/README.md) backend |
+| 4 | **Offline engine** | No AI | Free | Always on |
+
+Provider notes:
+
+- **Groq**: about 1,000 free requests a day on `gpt-oss-120b`, and very fast. The best default.
+- **Google Gemini**: Flash-Lite models get the most free requests; full Flash is stronger but has a small daily cap.
+  Outside the EEA, UK and Switzerland, free-tier prompts may be used to improve Google products.
+- **OpenRouter**: only `:free` models are listed; about 50 free requests a day without credits.
+
+Free tiers and model names change often, so the app reads each provider's live model list rather than hard-coding
+it. Your API key is stored only in your browser and sent only to the provider you chose. Use a key you can revoke.
+
+## How scenes are made: a GAN-inspired loop
+
+```mermaid
+flowchart LR
+  T["Template<br/>(offline engine, from the term bank)"] --> G["Generator<br/>(language model)"]
+  G --> D{"Discriminator<br/>rules + blind AI critic"}
+  D -- "rejected: reasons" --> G
+  D -- "passed" --> S["Scene shown"]
+  D -- "3 rejections" --> T2["Template shown"]
+```
+
+1. **Template.** The offline engine builds a scene for the step straight from the term bank. It is the "real"
    sample: always faithful to the exam wording, but plain.
-2. **Generator.** A language model rewrites the template into a richer story in the expedition's setting, keeping
-   its correct concept and kind of near-miss distractors.
-3. **Discriminator.** The draft is graded against the template and the exam definition. Rules first: the answer
-   key must express the anchor's definition, the story must not give the answer away, exactly one choice may be the
-   anchor, and wrong choices should be real course concepts. Optionally an AI critic then answers the question
-   blind; if it picks a different choice, or finds a contradiction with the definition, the draft is rejected.
-4. **Feedback.** A rejected draft goes back to the generator with the reasons, up to three rounds. If every draft
-   fails, the template is used.
+2. **Generator.** A language model rewrites it into a richer story in the expedition's setting, keeping the correct
+   concept and the kind of near-miss distractors.
+3. **Discriminator.** Rules check that the answer key expresses the definition, the story does not give the answer
+   away, exactly one choice is the concept, and the wrong choices are real course concepts. Then an optional AI
+   critic answers the question blind; if it picks a different choice or finds a contradiction, the draft is rejected.
+4. **Feedback.** Rejected drafts go back with the reasons, up to three rounds, before the template is used.
 
-Unlike a real GAN, nothing is trained adversarially: the generator is a fixed model and the discriminator is fixed
-rules plus a second model call. It borrows the generator-versus-discriminator structure, not the training.
-Calculation scenes always use the template so the arithmetic is exact.
+> **Why "GAN-inspired" and not a GAN?** A GAN *trains* a generator and a discriminator against each other. Here
+> nothing is trained adversarially: the generator is a fixed model and the discriminator is fixed rules plus a
+> second model call. It borrows the generator-versus-discriminator structure, not the training. Calculation scenes
+> always use the template so the arithmetic is exact.
 
-## Knowing when to move on: rules + LSTM (hybrid AI)
+## Knowing when to move on: rules + LSTM
 
-After each answer the game decides whether the story moves to the next link or confirms this one from a new angle.
+After each answer the game decides whether to move to the next step or confirm this one from a new angle. This is
+a **hybrid AI**: explicit rules plus a learned model.
 
-- **Rules** (always on): a miss never moves on; after a miss, two correct answers in a row are needed; a link is
-  never held for more than two confirmations, and anything still shaky goes to the rematch queue.
-- **LSTM progress model**: a small LSTM, trained in a Web Worker on your own answer history, reads each concept's
-  sequence of answers and predicts whether your next one will be right, and whether you are improving, steady or
-  declining. It only joins the decision once it beats a simple running-accuracy baseline on your newest answers,
-  which it was not trained on. Until then the rules decide alone. When it is in use, a correct answer still waits
-  for one more confirmation if the model gives the next one less than a 65% chance.
+- **Rules** (always on): a miss never moves on; after a miss, two correct answers in a row are needed; a step is never
+  held for more than two confirmations, and anything still shaky goes to the rematch queue.
+- **LSTM progress model**: a small LSTM trained in a Web Worker on your own answer history predicts, per concept,
+  whether your next answer will be right and whether you are improving, steady or declining. It joins the decision
+  only after beating a running-accuracy baseline on your newest answers, which it was not trained on. While it is
+  in use, a correct answer waits for one more confirmation if the model gives the next one under 65%.
 
 The Journal shows the model's held-out accuracy and log-loss against the baseline, and its forecast per concept.
 
-| Backend | Where it runs | Setup |
-| --- | --- | --- |
-| In-browser (WebLLM) | Your GPU through WebGPU, like the QPU lab | Settings → Load model (about 2 GB the first time) |
-| Cloudflare Workers AI | The `worker/` backend | Deploy the Worker with the `[ai]` binding |
-| Ollama | A local Ollama server | `ollama serve`, then pick the model in Settings |
-| Offline engine | The browser, no AI | Always available |
+## Saving your progress
 
-## Saving to the cloud
-
-Learning stays in the current session (and a local draft, so a reload loses nothing) until you press **Save**.
-A save sends only what changed since the last save — the concepts you touched, the scenes you played, the
-rematch queue and a session summary — to a Cloudflare Worker backed by D1. Saves are idempotent, and a newer copy
-of a concept is never overwritten by an older one. See [`worker/README.md`](worker/README.md) to deploy it.
+Your learning stays in the current session (with a local draft, so a reload loses nothing) until you press **Save**.
+A save sends only what changed — the concepts you touched, the scenes you played, the rematch queue and a session
+summary — to a Cloudflare Worker backed by D1. Saves are idempotent, and an older copy of a concept never overwrites
+a newer one. See [`worker/README.md`](worker/README.md) to deploy it. Without it, progress lives in your browser.
 
 ## Development
 
 ```bash
 npm install
 npm run dev      # Vite dev server
-npm test         # Vitest: engine, session store, AI fallback, Worker API
+npm test         # Vitest: engine, LSTM, discriminator, AI fallback, session store, Worker API
 npm run build    # typecheck and production build
 ```
 
 | Area | Location |
 | --- | --- |
-| Term bank, chains, distinctions, settings | `src/data/` |
-| Mastery, scoring, teaching-mode director, offline generator | `src/engine/` |
-| Model backends and prompts | `src/llm/` |
-| Session state, dirty tracking, study-context export | `src/session/` |
-| Cloud client | `src/sync/` |
-| Cloudflare Worker + D1 migration | `worker/` |
+| Term bank, chains, distinctions, story settings | [`src/data/`](src/data) |
+| Mastery, scoring, director, templates, discriminator, LSTM tracker | [`src/engine/`](src/engine) |
+| Hosted, in-browser, Ollama and Workers AI backends; the generate–discriminate loop | [`src/llm/`](src/llm) |
+| Session state, dirty tracking, study-context export | [`src/session/`](src/session) |
+| Cloud client and the Cloudflare Worker + D1 migration | [`src/sync/`](src/sync), [`worker/`](worker) |
 
-The site deploys to GitHub Pages from `main` through `.github/workflows/deploy-pages.yml`
-(Settings → Pages → Source: GitHub Actions).
+The site deploys to GitHub Pages from `main` through
+[`.github/workflows/deploy-pages.yml`](.github/workflows/deploy-pages.yml)
+(repository **Settings → Pages → Source: GitHub Actions**).
 
-Study content is drawn from the learner's own ISACA AI Fundamentals notes and terminology bank.
+<sub>Study content comes from the learner's own ISACA AI Fundamentals notes and terminology bank. ISACA and COBIT are
+trademarks of ISACA; this project is not affiliated with or endorsed by ISACA.</sub>

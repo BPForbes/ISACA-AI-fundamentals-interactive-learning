@@ -4,6 +4,7 @@ import type { SessionStats } from '../session/store';
 import { TARGET_POINTS } from '../session/store';
 
 const BACKEND_LABEL: Record<Backend, string> = {
+  hosted: 'AI: free hosted model',
   browser: 'AI: in-browser model',
   ollama: 'AI: Ollama',
   cloud: 'AI: Cloudflare',

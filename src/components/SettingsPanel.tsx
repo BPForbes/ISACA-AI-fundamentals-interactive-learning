@@ -1,6 +1,9 @@
 import { useState } from 'react';
 import type { SaveStatus } from '../App';
 import { BROWSER_MODEL_OPTIONS, type LlmMode, type LlmSettings } from '../llm/config';
+import {
+  chooseModel, completeWithHosted, HOSTED_PROVIDERS, listHostedModels, modelOf, type HostedConfig, type HostedProviderId,
+} from '../llm/hosted';
 import { hasWebGpu, isBrowserModelReady, preloadBrowserModel } from '../llm/webllm';
 import type { CloudConfig } from '../sync/cloud';
 
@@ -11,19 +14,48 @@ type Props = {
   onCloud: (c: CloudConfig) => void;
   onLoadCloud: () => void;
   save: SaveStatus;
+  hosted: HostedConfig;
+  onHosted: (c: HostedConfig) => void;
 };
 
 const MODES: { id: LlmMode; label: string; help: string }[] = [
-  { id: 'auto', label: 'Auto', help: 'Use the browser model once loaded, else the Cloudflare model if connected, else offline.' },
-  { id: 'browser', label: 'In-browser (WebLLM)', help: 'Runs on your GPU through WebGPU. Private; first load downloads about 2 GB.' },
-  { id: 'cloud', label: 'Cloudflare Workers AI', help: 'Your Worker generates scenes with Workers AI. Needs the backend below.' },
+  { id: 'auto', label: 'Auto (recommended)', help: 'The strongest AI that is ready: free hosted model, then the in-browser model, then Cloudflare, else offline.' },
+  { id: 'hosted', label: 'Free hosted model', help: 'A large model on Groq, Gemini or OpenRouter, with your own free API key.' },
+  { id: 'browser', label: 'In-browser (WebLLM)', help: 'Runs on your GPU through WebGPU. Private; first load downloads 1–5 GB.' },
+  { id: 'cloud', label: 'Cloudflare Workers AI (last resort)', help: 'Your Worker generates scenes with Workers AI. Needs the backend below.' },
   { id: 'ollama', label: 'Ollama (local server)', help: 'A model served by Ollama on this machine.' },
   { id: 'offline', label: 'Offline engine only', help: 'Scenes built from the term bank and chains. Instant, no AI.' },
 ];
 
-export function SettingsPanel({ llm, onLlm, cloud, onCloud, onLoadCloud, save }: Props) {
+export function SettingsPanel({ llm, onLlm, cloud, onCloud, onLoadCloud, save, hosted, onHosted }: Props) {
   const [progress, setProgress] = useState('');
   const [loading, setLoading] = useState(false);
+  const [models, setModels] = useState<string[]>([]);
+  const [hostedStatus, setHostedStatus] = useState('');
+  const provider = HOSTED_PROVIDERS[hosted.provider];
+
+  const loadModels = async () => {
+    setHostedStatus('Loading models…');
+    try {
+      const list = await listHostedModels(hosted);
+      setModels(list);
+      const model = chooseModel(hosted, list);
+      onHosted({ ...hosted, model });
+      setHostedStatus(list.length ? `${list.length} models available; selected ${model}.` : 'The provider listed no usable models.');
+    } catch (error) {
+      setHostedStatus(error instanceof Error ? error.message : 'Could not load the model list.');
+    }
+  };
+
+  const testHosted = async () => {
+    setHostedStatus('Testing…');
+    try {
+      const reply = await completeWithHosted(hosted, 'Reply with JSON only.', 'Return {"ok": true}.', 20);
+      setHostedStatus(reply ? `Connected to ${modelOf(hosted)}. New scenes will be written by it.` : 'Connected, but the model returned nothing.');
+    } catch (error) {
+      setHostedStatus(error instanceof Error ? error.message : 'The request failed (the provider may not allow browser requests).');
+    }
+  };
   const ready = isBrowserModelReady(llm.browserModel);
 
   const load = async () => {
@@ -50,6 +82,46 @@ export function SettingsPanel({ llm, onLlm, cloud, onCloud, onLoadCloud, save }:
             </label>
           ))}
         </fieldset>
+
+        <h2>Free hosted model</h2>
+        <p className="small">
+          The strongest free option: a large model on a provider's free tier, called directly from this page with your
+          own key. The key is stored only in this browser and sent only to {provider.label}.
+        </p>
+        <label className="field">
+          Provider
+          <select
+            value={hosted.provider}
+            onChange={(e) => {
+              setModels([]);
+              setHostedStatus('');
+              onHosted({ ...hosted, provider: e.target.value as HostedProviderId, model: '' });
+            }}
+          >
+            {Object.values(HOSTED_PROVIDERS).map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
+          </select>
+        </label>
+        <p className="small">
+          {provider.note}{' '}
+          {provider.keyUrl && <a href={provider.keyUrl} target="_blank" rel="noreferrer noopener">Get a free key</a>}
+        </p>
+        {hosted.provider === 'custom' && (
+          <label className="field">Base URL<input placeholder="https://…/v1" value={hosted.baseUrl} onChange={(e) => onHosted({ ...hosted, baseUrl: e.target.value })} /></label>
+        )}
+        <label className="field">
+          API key
+          <input type="password" autoComplete="off" value={hosted.apiKey} onChange={(e) => onHosted({ ...hosted, apiKey: e.target.value })} />
+        </label>
+        <label className="field">
+          Model
+          <input list="hosted-models" placeholder={provider.defaultModel || 'Load the list'} value={hosted.model} onChange={(e) => onHosted({ ...hosted, model: e.target.value })} />
+          <datalist id="hosted-models">{models.map((m) => <option key={m} value={m} />)}</datalist>
+        </label>
+        <div className="row">
+          <button onClick={loadModels} disabled={!hosted.apiKey}>Load model list</button>
+          <button onClick={testHosted} disabled={!hosted.apiKey || !modelOf(hosted)}>Test</button>
+        </div>
+        {hostedStatus && <p className="small" role="status">{hostedStatus}</p>}
 
         <h2>Discriminator</h2>
         <p className="small">

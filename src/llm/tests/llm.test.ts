@@ -6,7 +6,7 @@ import { buildScenePrompt } from '../prompt';
 
 const rng = () => 0.5;
 const req = buildSceneRequest(startExpedition('deepfakes', { lastKind: null, now: 'n', rng }), () => undefined);
-const noCloud = { url: '', token: '' };
+const noCloud = { cloud: { url: '', token: '' }, hosted: { provider: 'groq' as const, baseUrl: '', model: '', apiKey: '' } };
 const ollama = { ...defaultLlmSettings(), mode: 'ollama' as const };
 
 const ollamaReplies = (response: string) =>
@@ -38,7 +38,9 @@ const rulesOnly = { ...ollama, discriminator: 'rules' as const };
 describe('scene generation', () => {
   it('uses the offline engine in auto mode when no AI is ready', () => {
     expect(activeBackend(defaultLlmSettings(), noCloud)).toBe('offline');
-    expect(activeBackend(defaultLlmSettings(), { url: 'https://w', token: 't' })).toBe('cloud');
+    expect(activeBackend(defaultLlmSettings(), { ...noCloud, cloud: { url: 'https://w', token: 't' } })).toBe('cloud');
+    // A free hosted model outranks Cloudflare, which is the last resort.
+    expect(activeBackend(defaultLlmSettings(), { cloud: { url: 'https://w', token: 't' }, hosted: { ...noCloud.hosted, apiKey: 'k' } })).toBe('hosted');
   });
 
   it('accepts a valid model scene', async () => {
@@ -123,5 +125,16 @@ describe('scene generation', () => {
     const offline = await evaluateNote(req, 'Generative AI', 'creates new content from learned patterns in data', ollama, noCloud);
     expect(offline.source).toBe('offline');
     expect(offline.verdict).toBe('solid');
+  });
+});
+
+describe('free hosted backend', () => {
+  it('writes scenes through the hosted model in auto mode', async () => {
+    const fetchMock = vi.fn(async () => new Response(JSON.stringify({ choices: [{ message: { content: JSON.stringify(aiScene) } }] })));
+    vi.stubGlobal('fetch', fetchMock);
+    const b = { ...noCloud, hosted: { ...noCloud.hosted, apiKey: 'test-key' } };
+    const { scene } = await generateScene(req, { ...defaultLlmSettings(), discriminator: 'rules' }, b, rng);
+    expect(scene.source).toBe('ai');
+    expect((fetchMock.mock.calls[0] as unknown as [string])[0]).toContain('api.groq.com');
   });
 });
