@@ -1,142 +1,14 @@
-<!DOCTYPE html>
+<!doctype html>
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>ISACA AI Fundamentals</title>
-    <meta name="description" content="Interactive learning homepage for ISACA AI Fundamentals." />
-    <link rel="stylesheet" href="styles.css" />
+    <meta name="theme-color" content="#0f172a" />
+    <meta name="description" content="An AI-driven adventure for studying ISACA AI Fundamentals, Chapters 1–5." />
+    <title>ISACA AI Fundamentals — Lifecycle Expedition</title>
   </head>
   <body>
-    <header class="topbar">
-      <div class="container nav">
-        <div class="brand">ISACA AI Fundamentals</div>
-        <nav>
-          <a href="#overview">Overview</a>
-          <a href="#modules">Modules</a>
-          <a href="#quiz">Quiz</a>
-        </nav>
-      </div>
-    </header>
-
-    <main>
-      <section class="hero">
-        <div class="container hero-grid">
-          <div>
-            <p class="eyebrow">Interactive learning</p>
-            <h1>Build confidence in AI fundamentals.</h1>
-            <p class="lead">
-              Learn key AI concepts, practical use cases, and responsible governance in an easy-to-follow study guide.
-            </p>
-            <div class="cta-row">
-              <a class="button primary" href="#modules">Start learning</a>
-              <a class="button secondary" href="#quiz">Quick quiz</a>
-            </div>
-          </div>
-
-          <div class="hero-panel">
-            <div class="mini-card">
-              <span>Focus</span>
-              <strong>AI foundations, machine learning, and governance</strong>
-            </div>
-            <div class="mini-card">
-              <span>Audience</span>
-              <strong>Students, professionals, and governance-minded learners</strong>
-            </div>
-            <div class="mini-card accent">
-              <span>Goal</span>
-              <strong>Understand AI concepts and use them responsibly</strong>
-            </div>
-          </div>
-        </div>
-      </section>
-
-      <section id="overview" class="section">
-        <div class="container">
-          <h2>Learning snapshot</h2>
-          <div class="grid three-col">
-            <article class="info-card">
-              <h3>AI foundations</h3>
-              <p>AI is the broad field of systems that perform tasks that would typically require human intelligence.</p>
-            </article>
-            <article class="info-card">
-              <h3>Machine learning</h3>
-              <p>Models learn patterns from data and improve as they are trained and evaluated over time.</p>
-            </article>
-            <article class="info-card">
-              <h3>Responsible use</h3>
-              <p>Governance, privacy, fairness, and accountability are essential to safe and trustworthy AI adoption.</p>
-            </article>
-          </div>
-        </div>
-      </section>
-
-      <section id="modules" class="section alt">
-        <div class="container">
-          <h2>Core modules</h2>
-          <div class="module-list">
-            <article class="module-item">
-              <div class="module-label">Module 01</div>
-              <h3>What is AI?</h3>
-              <ul>
-                <li>Understand the broad scope of AI.</li>
-                <li>Explore examples of intelligent systems.</li>
-                <li>Distinguish AI from traditional software.</li>
-              </ul>
-            </article>
-
-            <article class="module-item">
-              <div class="module-label">Module 02</div>
-              <h3>Machine learning basics</h3>
-              <ul>
-                <li>Learn how models identify patterns.</li>
-                <li>Review training, testing, and evaluation.</li>
-                <li>Recognize common pitfalls such as bias.</li>
-              </ul>
-            </article>
-
-            <article class="module-item">
-              <div class="module-label">Module 03</div>
-              <h3>Generative AI</h3>
-              <ul>
-                <li>Understand text, image, and code generation.</li>
-                <li>See how large language models work at a high level.</li>
-                <li>Review benefits and limitations.</li>
-              </ul>
-            </article>
-
-            <article class="module-item">
-              <div class="module-label">Module 04</div>
-              <h3>Governance & risk</h3>
-              <ul>
-                <li>Identify policy, compliance, and trust concerns.</li>
-                <li>Understand accountability and oversight.</li>
-                <li>Apply responsible AI principles in practice.</li>
-              </ul>
-            </article>
-          </div>
-        </div>
-      </section>
-
-      <section id="quiz" class="section">
-        <div class="container quiz-wrap">
-          <h2>Quick knowledge check</h2>
-          <div class="quiz-card">
-            <p class="question" id="question-text"></p>
-            <div class="choices" id="choices"></div>
-            <p id="feedback" class="feedback" aria-live="polite"></p>
-            <button id="next-btn" class="button primary hidden">Next question</button>
-          </div>
-        </div>
-      </section>
-    </main>
-
-    <footer class="footer">
-      <div class="container">
-        <p>ISACA AI Fundamentals Interactive Learning</p>
-      </div>
-    </footer>
-
-    <script src="script.js"></script>
+    <div id="root"></div>
+    <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

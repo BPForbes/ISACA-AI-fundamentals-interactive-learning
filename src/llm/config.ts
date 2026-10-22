@@ -1,0 +1,76 @@
+// Model backend preferences. "auto" uses the strongest AI that is ready, in
+// this order: a free hosted model (with the learner's own key), the in-browser
+// model once loaded, then the Cloudflare Worker's Workers AI as a last resort,
+// and otherwise the offline generator. Ollama is used only when chosen.
+
+export type LlmMode = 'auto' | 'hosted' | 'browser' | 'ollama' | 'cloud' | 'offline';
+
+// How AI scenes are checked before they are shown: rules only, or rules plus a blind AI critic.
+export type DiscriminatorMode = 'rules' | 'rules+ai';
+
+export type LlmSettings = {
+  mode: LlmMode;
+  discriminator: DiscriminatorMode;
+  // Generator attempts before falling back to the template scene.
+  rounds: number;
+  browserModel: string;
+  ollamaUrl: string;
+  ollamaModel: string;
+};
+
+const STORAGE_KEY = 'isaca-quest-llm-settings-v1';
+
+// Larger models write better scenes but need more GPU memory (roughly: 7–8B ≈ 5–6 GB, 3B ≈ 2.5 GB).
+export const BROWSER_MODEL_OPTIONS = [
+  'Llama-3.2-3B-Instruct-q4f16_1-MLC',
+  'Qwen2.5-3B-Instruct-q4f16_1-MLC',
+  'Qwen2.5-7B-Instruct-q4f16_1-MLC',
+  'Llama-3.1-8B-Instruct-q4f16_1-MLC',
+  'Llama-3.2-1B-Instruct-q4f16_1-MLC',
+] as const;
+
+// Scenario writing needs more than intent parsing does, so the default is the 3B model.
+export const DEFAULT_BROWSER_MODEL = import.meta.env.VITE_WEBLLM_MODEL ?? BROWSER_MODEL_OPTIONS[0];
+const DEFAULT_OLLAMA_URL = import.meta.env.VITE_OLLAMA_URL ?? 'http://localhost:11434/api/generate';
+const DEFAULT_OLLAMA_MODEL = import.meta.env.VITE_OLLAMA_MODEL ?? 'llama3.1:8b';
+
+export const defaultLlmSettings = (): LlmSettings => ({
+  mode: 'auto',
+  discriminator: 'rules+ai',
+  rounds: 3,
+  browserModel: DEFAULT_BROWSER_MODEL,
+  ollamaUrl: DEFAULT_OLLAMA_URL,
+  ollamaModel: DEFAULT_OLLAMA_MODEL,
+});
+
+const MODES: LlmMode[] = ['auto', 'hosted', 'browser', 'ollama', 'cloud', 'offline'];
+
+const str = (v: unknown, fallback: string) => (typeof v === 'string' && v.trim() ? v.trim() : fallback);
+
+export const loadLlmSettings = (): LlmSettings => {
+  const d = defaultLlmSettings();
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return d;
+    const p = JSON.parse(raw) as Partial<LlmSettings>;
+    return {
+      mode: MODES.includes(p.mode as LlmMode) ? (p.mode as LlmMode) : d.mode,
+      discriminator: p.discriminator === 'rules' ? 'rules' : d.discriminator,
+      rounds: typeof p.rounds === 'number' && p.rounds >= 1 && p.rounds <= 5 ? Math.round(p.rounds) : d.rounds,
+      browserModel: str(p.browserModel, d.browserModel),
+      ollamaUrl: str(p.ollamaUrl, d.ollamaUrl),
+      ollamaModel: str(p.ollamaModel, d.ollamaModel),
+    };
+  } catch {
+    return d;
+  }
+};
+
+// Only backend preferences are stored, never prompts or learner answers.
+export const saveLlmSettings = (s: LlmSettings) => {
+  try {
+    localStorage.setItem(STORAGE_KEY, JSON.stringify(s));
+  } catch {
+    // Storage can be unavailable (private mode); settings then last for the tab.
+  }
+};
