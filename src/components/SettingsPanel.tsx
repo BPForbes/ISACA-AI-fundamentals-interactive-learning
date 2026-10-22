@@ -1,10 +1,10 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import type { SaveStatus } from '../App';
 import { BROWSER_MODEL_OPTIONS, type LlmMode, type LlmSettings } from '../llm/config';
 import {
   chooseModel, completeWithHosted, HOSTED_PROVIDERS, listHostedModels, modelOf, type HostedConfig, type HostedProviderId,
 } from '../llm/hosted';
-import { hasWebGpu, isBrowserModelReady, preloadBrowserModel } from '../llm/webllm';
+import { hasWebGpu, isBrowserModelReady, isModelCached, preloadBrowserModel, removeCachedBrowserModel } from '../llm/webllm';
 import type { CloudConfig } from '../sync/cloud';
 
 type Props = {
@@ -57,12 +57,27 @@ export function SettingsPanel({ llm, onLlm, cloud, onCloud, onLoadCloud, save, h
     }
   };
   const ready = isBrowserModelReady(llm.browserModel);
+  const [cached, setCached] = useState(false);
+  useEffect(() => {
+    let active = true;
+    void isModelCached(llm.browserModel).then((c) => active && setCached(c));
+    return () => {
+      active = false;
+    };
+  }, [llm.browserModel, ready]);
+
+  const remove = async () => {
+    if (!window.confirm(`Remove ${llm.browserModel} from this device? It will need to download again to use it.`)) return;
+    await removeCachedBrowserModel(llm.browserModel);
+    setCached(false);
+    setProgress('Removed from this device.');
+  };
 
   const load = async () => {
     setLoading(true);
     try {
       const ok = await preloadBrowserModel(llm.browserModel, setProgress);
-      setProgress(ok ? 'Model ready. New scenes will be AI-written.' : 'WebGPU is not available in this browser.');
+      setProgress(ok ? 'Model ready and cached on this device. It will load automatically next time, with no download.' : 'WebGPU is not available in this browser.');
     } catch (error) {
       setProgress(error instanceof Error ? error.message : 'Model failed to load.');
     }
@@ -154,7 +169,17 @@ export function SettingsPanel({ llm, onLlm, cloud, onCloud, onLoadCloud, save, h
             {BROWSER_MODEL_OPTIONS.map((m) => <option key={m} value={m}>{m}</option>)}
           </select>
         </label>
-        <button onClick={load} disabled={loading || ready || !hasWebGpu()}>{ready ? 'Loaded' : loading ? 'Loading…' : 'Load model'}</button>
+        <p className="small">
+          {ready ? 'Loaded. ' : ''}{cached
+            ? 'Cached on this device: it loads automatically on each visit without downloading again.'
+            : 'Not cached yet: the first load downloads it once, then it is kept on this device.'}
+        </p>
+        <div className="row">
+          <button onClick={load} disabled={loading || ready || !hasWebGpu()}>
+            {ready ? 'Loaded' : loading ? 'Loading…' : cached ? 'Load from cache' : 'Download and cache'}
+          </button>
+          {cached && <button className="ghost" onClick={remove} disabled={loading}>Remove from this device</button>}
+        </div>
         {progress && <p className="small" role="status">{progress}</p>}
 
         <h2>Ollama</h2>

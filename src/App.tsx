@@ -6,6 +6,7 @@ import { fitTracker, type GateDecision, type TrackerModel } from './engine/track
 import { loadLlmSettings, saveLlmSettings, type LlmSettings } from './llm/config';
 import { activeBackend, evaluateNote, generateScene, type NoteVerdict } from './llm';
 import { loadHostedConfig, saveHostedConfig, type HostedConfig } from './llm/hosted';
+import { onBrowserModelChange, restoreCachedBrowserModel } from './llm/webllm';
 import {
   answerScene, applyRemote, beginExpedition, buildSavePayload, deferCurrentStep, hasUnsavedChanges,
   leaveCamp, loadDraft, markSaved, newSession, recordNote, saveDraft, type SessionState,
@@ -43,6 +44,8 @@ export default function App() {
   const [campOpen, setCampOpen] = useState(false);
   const [save, setSave] = useState<SaveStatus>({ kind: 'idle' });
   const [tracker, setTracker] = useState<TrackerModel | null>(null);
+  const [modelStatus, setModelStatus] = useState<string | null>(null);
+  const [, setModelVersion] = useState(0);
   const sceneToken = useRef(0);
   const trainedAt = useRef(-1);
 
@@ -76,6 +79,24 @@ export default function App() {
   }, [historyLength]);
   useEffect(() => saveLlmSettings(llm), [llm]);
   useEffect(() => saveCloudConfig(cloud), [cloud]);
+
+  // Re-render when the in-browser model becomes ready or is removed, so "auto" picks it up.
+  useEffect(() => onBrowserModelChange(() => setModelVersion((v) => v + 1)), []);
+
+  // A model loaded on an earlier visit comes back from this device's cache, with no download.
+  useEffect(() => {
+    let active = true;
+    restoreCachedBrowserModel((text) => active && setModelStatus(`Loading your cached model: ${text}`))
+      .then((id) => {
+        if (!active || !id) return;
+        setLlm((s) => (s.browserModel === id ? s : { ...s, browserModel: id }));
+        setModelStatus(null);
+      })
+      .catch(() => active && setModelStatus(null));
+    return () => {
+      active = false;
+    };
+  }, []);
   useEffect(() => saveHostedConfig(hosted), [hosted]);
   const backends = useMemo(() => ({ cloud, hosted }), [cloud, hosted]);
 
@@ -202,6 +223,7 @@ export default function App() {
       <Header
         stats={session.stats}
         backend={backend}
+        modelStatus={modelStatus}
         unsaved={session.dirty.length + session.events.length}
         cloudReady={isCloudConfigured(cloud)}
         save={save}

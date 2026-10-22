@@ -52,7 +52,7 @@ from a large model. In **Settings → Scenario AI**, **Auto** picks the stronges
 | Order | Option | Model size | Cost | Set up |
 | :-: | --- | --- | --- | --- |
 | 1 | **Free hosted model** (recommended) | Large: `openai/gpt-oss-120b` on Groq by default | Free tier, no card | Get a free key from [Groq](https://console.groq.com/keys), [Google AI Studio](https://aistudio.google.com/apikey) or [OpenRouter](https://openrouter.ai/keys), paste it in Settings, press **Load model list** |
-| 2 | **In-browser model** (WebLLM) | 1B–8B, runs on your GPU | Free, fully private | Settings → pick a model → **Load model** (1–5 GB download, needs WebGPU) |
+| 2 | **In-browser model** (WebLLM) | 1B–8B, runs on your GPU | Free, fully private, no key | Settings → pick a model → **Download and cache** (1–5 GB once, needs WebGPU). It is kept on your device and loads automatically on every later visit |
 | — | **Ollama** | Whatever you run locally | Free | `ollama serve`, then choose Ollama in Settings |
 | 3 | **Cloudflare Workers AI** (last resort) | 8B by default | Cloudflare free allocation, then paid | Deploy the [`worker/`](worker/README.md) backend |
 | 4 | **Offline engine** | No AI | Free | Always on |
@@ -63,6 +63,10 @@ Provider notes:
 - **Google Gemini**: Flash-Lite models get the most free requests; full Flash is stronger but has a small daily cap.
   Outside the EEA, UK and Switzerland, free-tier prompts may be used to improve Google products.
 - **OpenRouter**: only `:free` models are listed; about 50 free requests a day without credits.
+
+The in-browser model is downloaded once and kept in the browser's cache storage (the app asks the browser to keep
+it persistent), so later visits load it from disk with no download. **Remove from this device** in Settings frees
+the space.
 
 Free tiers and model names change often, so the app reads each provider's live model list rather than hard-coding
 it. Your API key is stored only in your browser and sent only to the provider you chose. Use a key you can revoke.

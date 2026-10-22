@@ -14,6 +14,7 @@ const BACKEND_LABEL: Record<Backend, string> = {
 type Props = {
   stats: SessionStats;
   backend: Backend;
+  modelStatus: string | null;
   unsaved: number;
   cloudReady: boolean;
   save: SaveStatus;
@@ -22,7 +23,7 @@ type Props = {
   onSave: () => void;
 };
 
-export function Header({ stats, backend, unsaved, cloudReady, save, view, onView, onSave }: Props) {
+export function Header({ stats, backend, modelStatus, unsaved, cloudReady, save, view, onView, onSave }: Props) {
   const accuracy = stats.answered ? Math.round((stats.correct / stats.answered) * 100) : 0;
   return (
     <header className="header">
@@ -44,7 +45,9 @@ export function Header({ stats, backend, unsaved, cloudReady, save, view, onView
         <span title="Points toward the session target">{stats.points} / {TARGET_POINTS} pts</span>
         <span title="Accuracy this session">{accuracy}% acc</span>
         <span title="Current streak (multiplier is the square root)">🔥 {stats.streak}</span>
-        <span className={`badge backend-${backend}`}>{BACKEND_LABEL[backend]}</span>
+        <span className={`badge backend-${backend}`} title={modelStatus ?? undefined}>
+          {modelStatus ? 'Loading cached model…' : BACKEND_LABEL[backend]}
+        </span>
         <button
           className={unsaved > 0 ? 'save-btn pending' : 'save-btn'}
           onClick={onSave}
