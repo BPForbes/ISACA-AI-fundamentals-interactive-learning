@@ -70,6 +70,8 @@ export type RemoteProgress = {
   terms: TermProgress[];
   sessions: SessionSummary[];
   remediation: string[];
+  // Recent answers, so a new device can train the progress model. Older Workers omit it.
+  events?: SceneEvent[];
 };
 
 const request = async (c: CloudConfig, path: string, init: RequestInit = {}): Promise<Response> => {

@@ -78,8 +78,9 @@ describe('save and progress', () => {
     const res = await post('/api/save', savePayload('save-1'));
     expect(res.status).toBe(200);
     expect(await res.json()).toMatchObject({ status: 'saved', terms: 1, events: 1 });
-    const progress = await (await call('/api/progress')).json() as { terms: { id: string }[]; sessions: unknown[]; remediation: string[] };
+    const progress = await (await call('/api/progress')).json() as { terms: { id: string }[]; sessions: unknown[]; remediation: string[]; events: { id: string; correct: boolean }[] };
     expect(progress.terms.map((t) => t.id)).toEqual(['kpi']);
+    expect(progress.events).toEqual([expect.objectContaining({ id: 'ev-1', correct: true, note: '' })]);
     expect(progress.sessions).toHaveLength(1);
     expect(progress.remediation).toEqual(['kgi']);
   });

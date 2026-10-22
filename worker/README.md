@@ -5,7 +5,7 @@ Cloudflare Worker + D1 database that stores what you learn, and optionally write
 | Route | Auth | Purpose |
 | --- | --- | --- |
 | `GET /api/health` | none | Liveness |
-| `GET /api/progress` | bearer | All concept progress, the last 20 sessions, the rematch queue |
+| `GET /api/progress` | bearer | All concept progress, the last 20 sessions, the rematch queue, recent answers (for the progress model) |
 | `POST /api/save` | bearer | Apply one save (idempotent by `saveId`, newer concept copies win) |
 | `POST /api/generate` | bearer | Run the Workers AI model on a scene prompt (501 without the `[ai]` binding) |
 

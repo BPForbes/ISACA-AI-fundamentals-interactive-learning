@@ -87,6 +87,13 @@ export function SceneView(props: Props) {
             <span className="badge">{MODE_LABELS[req.mode]}</span>
             <span className="badge">{req.setting.name}{req.setting.kind === 'familiar' ? ' (analogy)' : ''}</span>
             {scene && <span className="badge subtle">{scene.source === 'ai' ? 'AI-written' : 'Offline engine'}</span>}
+            {scene?.review && scene.source === 'ai' && (
+              <span className="badge subtle" title="GAN-inspired check: drafts are graded against the template and the exam definition before you see them">
+                Discriminator: passed{scene.review.rejected ? ` after ${scene.review.rejected} rejected draft${scene.review.rejected > 1 ? 's' : ''}` : ''}
+                {scene.review.critic === 'agreed' ? ' · critic agreed' : ''}
+              </span>
+            )}
+            {req?.confirming && <span className="badge">Confirmation</span>}
           </div>
         )}
         {notice && <p className="notice">{notice}</p>}
@@ -149,6 +156,10 @@ export function SceneView(props: Props) {
                   <span>{answered.points >= 0 ? '+' : ''}{answered.points} pts</span>
                 </p>
                 <p><em>What happens:</em> {answered.choice.consequence}</p>
+                <p className={`gate ${answered.gate.advance ? 'go' : 'hold'}`}>
+                  <strong>{answered.gate.advance ? 'Next link' : 'Same link'}</strong> — {answered.gate.reason}
+                  <small> Decided by {answered.gate.decidedBy === 'rules' ? 'the mastery rules (progress model still learning)' : 'the mastery rules and the LSTM progress model'}.</small>
+                </p>
                 <div className="definition">
                   <strong>{req.anchor.term}</strong> — {req.anchor.definition}
                   {req.contrast && <p className="clue">Deciding clue vs {req.contrast.partner.term}: {req.contrast.clue}</p>}
@@ -161,7 +172,7 @@ export function SceneView(props: Props) {
                   {verdict && <p className={`verdict ${verdict.verdict}`}>{verdict.feedback}</p>}
                 </div>
                 <button className="primary" onClick={props.onContinue}>
-                  {expedition.status === 'complete' ? 'See how it ends' : answered.choice.correct ? 'Onward' : 'Try this link again'}
+                  {expedition.status === 'complete' ? 'See how it ends' : answered.gate.advance ? 'Onward' : answered.choice.correct ? 'Confirm from a new angle' : 'Try this link again'}
                 </button>
               </div>
             )}

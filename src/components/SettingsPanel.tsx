@@ -51,6 +51,29 @@ export function SettingsPanel({ llm, onLlm, cloud, onCloud, onLoadCloud, save }:
           ))}
         </fieldset>
 
+        <h2>Discriminator</h2>
+        <p className="small">
+          AI drafts are rewritten from a template scene built from your term bank, then graded against that template and
+          the exam definition before you see them. Rejected drafts go back to the generator with the reasons.
+        </p>
+        <fieldset className="modes">
+          <legend>How drafts are checked</legend>
+          <label className="mode">
+            <input type="radio" name="disc" checked={llm.discriminator === 'rules'} onChange={() => onLlm({ ...llm, discriminator: 'rules' })} />
+            <span><strong>Rules</strong><small>Answer key matches the definition, no giveaway, one right answer, real near-miss distractors. Instant.</small></span>
+          </label>
+          <label className="mode">
+            <input type="radio" name="disc" checked={llm.discriminator === 'rules+ai'} onChange={() => onLlm({ ...llm, discriminator: 'rules+ai' })} />
+            <span><strong>Rules + AI critic</strong><small>The model also answers each draft blind; a draft it answers differently is rejected. One extra call per draft.</small></span>
+          </label>
+        </fieldset>
+        <label className="field">
+          Drafts before using the template
+          <select value={llm.rounds} onChange={(e) => onLlm({ ...llm, rounds: Number(e.target.value) })}>
+            {[1, 2, 3, 4, 5].map((n) => <option key={n} value={n}>{n}</option>)}
+          </select>
+        </label>
+
         <h2>In-browser model</h2>
         {!hasWebGpu() && <p className="notice">This browser has no WebGPU, so the in-browser model cannot run here.</p>}
         <label className="field">

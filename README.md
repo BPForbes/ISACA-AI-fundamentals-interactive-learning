@@ -23,11 +23,38 @@ each link holds up.
 - **Camp** every six scenes: the guide's queue refresh, and the natural moment to save.
 - **Journal**: every term with its level and stage, and the end-of-session study context (YAML) to download.
 
-## AI scenario writing
+## AI scenario writing: a GAN-inspired loop
 
-Scenes are written by a language model when one is available, and by the offline story engine otherwise. Every model
-answer is validated (3–4 distinct choices, exactly one correct) and falls back to the offline engine if it is not.
-Calculation scenes always use the offline engine so the arithmetic is exact.
+Scenes are made by a generator and checked by a discriminator before you see them:
+
+1. **Template.** The offline engine builds a scene for the link straight from the term bank. It is the "real"
+   sample: always faithful to the exam wording, but plain.
+2. **Generator.** A language model rewrites the template into a richer story in the expedition's setting, keeping
+   its correct concept and kind of near-miss distractors.
+3. **Discriminator.** The draft is graded against the template and the exam definition. Rules first: the answer
+   key must express the anchor's definition, the story must not give the answer away, exactly one choice may be the
+   anchor, and wrong choices should be real course concepts. Optionally an AI critic then answers the question
+   blind; if it picks a different choice, or finds a contradiction with the definition, the draft is rejected.
+4. **Feedback.** A rejected draft goes back to the generator with the reasons, up to three rounds. If every draft
+   fails, the template is used.
+
+Unlike a real GAN, nothing is trained adversarially: the generator is a fixed model and the discriminator is fixed
+rules plus a second model call. It borrows the generator-versus-discriminator structure, not the training.
+Calculation scenes always use the template so the arithmetic is exact.
+
+## Knowing when to move on: rules + LSTM (hybrid AI)
+
+After each answer the game decides whether the story moves to the next link or confirms this one from a new angle.
+
+- **Rules** (always on): a miss never moves on; after a miss, two correct answers in a row are needed; a link is
+  never held for more than two confirmations, and anything still shaky goes to the rematch queue.
+- **LSTM progress model**: a small LSTM, trained in a Web Worker on your own answer history, reads each concept's
+  sequence of answers and predicts whether your next one will be right, and whether you are improving, steady or
+  declining. It only joins the decision once it beats a simple running-accuracy baseline on your newest answers,
+  which it was not trained on. Until then the rules decide alone. When it is in use, a correct answer still waits
+  for one more confirmation if the model gives the next one less than a 65% chance.
+
+The Journal shows the model's held-out accuracy and log-loss against the baseline, and its forecast per concept.
 
 | Backend | Where it runs | Setup |
 | --- | --- | --- |

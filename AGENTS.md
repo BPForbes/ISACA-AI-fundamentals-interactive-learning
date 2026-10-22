@@ -14,7 +14,13 @@ plus a Cloudflare Worker (`worker/`) that stores progress in D1 and can generate
 - Keep the guide's teaching rules: one anchor concept per scene (topic lock), a miss keeps the anchor in play,
   points never override mastery, and familiar (personal-project) settings are analogies, never claims about what
   those projects implement.
-- Model output is untrusted. Every generated scene must pass `sanitizeScene`; never render model text without it.
+- Model output is untrusted. Every generated scene must pass `sanitizeScene` and the discriminator
+  (`src/engine/discriminator.ts`); never render model text without both. The offline template is the reference
+  every draft is graded against, so keep the offline generator faithful to the term bank.
+- Call the scene loop GAN-inspired, not a GAN: nothing in it is trained adversarially.
+- The LSTM progress model (`src/engine/tracker.ts`) may influence the move-on decision only while its held-out
+  assessment beats the baseline. The rules in `decideAdvance` always apply, and the confirmation cap keeps a learner
+  from being held on one link indefinitely.
 - Calculation scenes stay on the offline engine so arithmetic is exact.
 
 ## Data and security

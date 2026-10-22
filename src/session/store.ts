@@ -8,6 +8,7 @@ import { TERM_BY_ID } from '../data/terms';
 import { applyDecision, deferStep, type Expedition, type SceneRequest } from '../engine/director';
 import { creditExplanation, levelOf, mergeProgress, newProgress, recordAnswer, STAGE_NAMES, type TermProgress } from '../engine/progress';
 import { scoreAnswer } from '../engine/scoring';
+import { decideAdvance, type GateDecision, type HistoryEvent, type TrackerModel } from '../engine/tracker';
 import type { Choice, Scene } from '../engine/scene';
 import type { RemoteProgress, SavePayload, SceneEvent, SessionSummary } from '../sync/cloud';
 
@@ -38,7 +39,11 @@ export type SessionState = {
   lastSavedAt: string | null;
   sinceCamp: number;
   notes: { anchor: string; note: string; verdict: string }[];
+  // Every answer ever given, kept locally (and restored from the cloud) to train the progress model.
+  history: HistoryEvent[];
 };
+
+export const HISTORY_CAP = 5000;
 
 const emptyStats = (): SessionStats => ({
   points: 0, answered: 0, correct: 0, streak: 0, longestStreak: 0, modesUsed: [], expeditions: [],
@@ -59,6 +64,7 @@ export const newSession = (now: string, id: string, carry?: SessionState): Sessi
   lastSavedAt: carry?.lastSavedAt ?? null,
   sinceCamp: 0,
   notes: [],
+  history: carry?.history ?? [],
 });
 
 const addUnique = (list: string[], item: string) => (list.includes(item) ? list : [...list, item]);
@@ -78,9 +84,10 @@ export type AnswerInput = {
   note: string;
   now: string;
   eventId: string;
+  model: TrackerModel | null;
 };
 
-export type AnswerOutcome = { state: SessionState; points: number; campDue: boolean };
+export type AnswerOutcome = { state: SessionState; points: number; campDue: boolean; gate: GateDecision };
 
 export const answerScene = (s: SessionState, a: AnswerInput): AnswerOutcome => {
   if (!s.expedition) throw new Error('No active expedition');
@@ -124,17 +131,40 @@ export const answerScene = (s: SessionState, a: AnswerInput): AnswerOutcome => {
     note: a.note.slice(0, 1000),
   };
 
-  const expedition = applyDecision(s.expedition, {
+  const historyEvent: HistoryEvent = {
+    id: a.eventId,
+    at: a.now,
+    concept: anchorId,
+    correct: a.choice.correct,
+    risk: a.risk,
+    mode: a.req.mode,
+    settingId: a.req.setting.id,
+    source: a.scene.source,
+  };
+  const history = [...(s.history ?? []), historyEvent].slice(-HISTORY_CAP);
+
+  const exp = s.expedition;
+  const gate = decideAdvance({
+    correct: a.choice.correct,
+    missesOnStep: exp.missesOnStep,
+    confirmationsOnStep: exp.confirmationsOnStep ?? 0,
+    previousOnStepCorrect: exp.lastOnStepCorrect ?? false,
+    model: a.model,
+    conceptHistory: history.filter((e) => e.concept === anchorId),
+  });
+
+  const expedition = applyDecision(exp, {
     anchor: anchorId,
     choice: a.choice.text,
     correct: a.choice.correct,
     consequence: a.choice.consequence,
-  });
+  }, gate.advance);
 
   const sinceCamp = s.sinceCamp + 1;
   return {
     points: score.points,
     campDue: sinceCamp >= CAMP_INTERVAL,
+    gate,
     state: {
       ...s,
       progress: { ...s.progress, [anchorId]: progress },
@@ -145,6 +175,7 @@ export const answerScene = (s: SessionState, a: AnswerInput): AnswerOutcome => {
       expedition,
       lastKind: expedition.status === 'complete' ? a.req.setting.kind : s.lastKind,
       sinceCamp,
+      history,
     },
   };
 };
@@ -216,7 +247,12 @@ export const applyRemote = (s: SessionState, remote: RemoteProgress): SessionSta
   }
   const remediation = [...s.remediation];
   for (const id of remote.remediation) if (TERM_BY_ID.has(id) && !remediation.includes(id)) remediation.push(id);
-  return { ...s, progress, remediation };
+  const known = new Set((s.history ?? []).map((e) => e.id));
+  const incoming = (remote.events ?? []).filter((e) => !known.has(e.id) && TERM_BY_ID.has(e.anchor)).map((e): HistoryEvent => ({
+    id: e.id, at: e.at, concept: e.anchor, correct: e.correct, risk: e.risk, mode: e.mode, settingId: e.settingId, source: e.source,
+  }));
+  const history = [...(s.history ?? []), ...incoming].sort((x, y) => x.at.localeCompare(y.at)).slice(-HISTORY_CAP);
+  return { ...s, progress, remediation, history };
 };
 
 const DRAFT_KEY = 'isaca-quest-session-v1';
@@ -234,7 +270,9 @@ export const loadDraft = (): SessionState | null => {
     const raw = localStorage.getItem(DRAFT_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as SessionState;
-    return parsed.version === 1 && parsed.progress && parsed.stats ? parsed : null;
+    if (parsed.version !== 1 || !parsed.progress || !parsed.stats) return null;
+    // Drafts written before the progress model existed have no history yet.
+    return { ...parsed, history: parsed.history ?? [] };
   } catch {
     return null;
   }

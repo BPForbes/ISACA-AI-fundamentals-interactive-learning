@@ -4,11 +4,12 @@
 
 import type { SceneRequest } from '../engine/director';
 import { generateOfflineScene, keywordOverlap } from '../engine/offline';
-import { extractJson, sanitizeScene, shuffleChoices, type Scene } from '../engine/scene';
+import { judgeRules, parseCritic } from '../engine/discriminator';
+import { extractJson, sanitizeScene, shuffleChoices, type Scene, type SceneReview } from '../engine/scene';
 import { completeWithCloud, isCloudConfigured, type CloudConfig } from '../sync/cloud';
 import type { LlmSettings } from './config';
 import { completeWithOllama } from './ollama';
-import { buildNotePrompt, buildScenePrompt } from './prompt';
+import { buildCriticPrompt, buildNotePrompt, buildScenePrompt } from './prompt';
 import { completeWithWebLlm, isBrowserModelReady } from './webllm';
 
 export type Backend = 'browser' | 'ollama' | 'cloud' | 'offline';
@@ -38,25 +39,77 @@ const complete = async (backend: Backend, s: LlmSettings, cloud: CloudConfig, sy
 
 export type SceneResult = { scene: Scene; fallbackReason?: string };
 
+/**
+ * GAN-inspired generate-and-discriminate loop. The offline template is the
+ * "real" sample: the generator rewrites it into a richer scene, the
+ * discriminator grades the draft against the template and the exam definition
+ * (rules, then optionally a blind AI critic), and rejected drafts go back with
+ * the reasons. After the last round the template itself is used.
+ */
 export const generateScene = async (
   req: SceneRequest,
   s: LlmSettings,
   cloud: CloudConfig,
   rng: () => number = Math.random,
 ): Promise<SceneResult> => {
+  const template = generateOfflineScene(req, rng);
   const backend = activeBackend(s, cloud);
   // Calculation scenes need exact arithmetic, which small models get wrong.
-  if (backend === 'offline' || req.mode === 'calculation') return { scene: generateOfflineScene(req, rng) };
-  try {
-    const { system, user } = buildScenePrompt(req);
-    const content = await complete(backend, s, cloud, system, user, 900);
-    const scene = content ? sanitizeScene(extractJson(content)) : null;
-    if (scene) return { scene: { ...scene, choices: shuffleChoices(scene.choices, rng), source: 'ai' } };
-    return { scene: generateOfflineScene(req, rng), fallbackReason: 'The model answer was not a valid scene.' };
-  } catch (error) {
-    const reason = error instanceof Error ? error.message : 'The model is unavailable.';
-    return { scene: generateOfflineScene(req, rng), fallbackReason: reason };
+  if (backend === 'offline' || req.mode === 'calculation') return { scene: template };
+
+  let feedback: string[] = [];
+  let lastIssues: string[] = [];
+  for (let round = 1; round <= s.rounds; round += 1) {
+    let candidate: Scene | null = null;
+    try {
+      const { system, user } = buildScenePrompt(req, template, feedback);
+      const content = await complete(backend, s, cloud, system, user, 900);
+      const sane = content ? sanitizeScene(extractJson(content)) : null;
+      candidate = sane ? { ...sane, choices: shuffleChoices(sane.choices, rng), source: 'ai' } : null;
+    } catch (error) {
+      return { scene: template, fallbackReason: error instanceof Error ? error.message : 'The model is unavailable.' };
+    }
+    if (!candidate) {
+      feedback = ['The output was not valid JSON with 3-4 distinct choices and exactly one correct.'];
+      lastIssues = feedback;
+      continue;
+    }
+
+    const rules = judgeRules(candidate, req, template);
+    if (!rules.pass) {
+      feedback = rules.issues;
+      lastIssues = rules.issues;
+      continue;
+    }
+
+    let critic: SceneReview['critic'] = 'skipped';
+    if (s.discriminator === 'rules+ai') {
+      try {
+        const { system, user } = buildCriticPrompt(req, candidate);
+        const content = await complete(backend, s, cloud, system, user, 300);
+        const verdict = content ? parseCritic(extractJson(content), candidate.choices.map((c) => c.id)) : null;
+        const keyed = candidate.choices.find((c) => c.correct)!.id;
+        if (!verdict) critic = 'unavailable';
+        else if (verdict.answer !== keyed || verdict.contradicts) {
+          feedback = [
+            verdict.answer !== keyed
+              ? `A reviewer answering blind chose "${candidate.choices.find((c) => c.id === verdict.answer)?.text}" instead of the keyed answer. Make the situation point unambiguously to ${req.anchor.term}.`
+              : 'A reviewer found a contradiction with the exam definition.',
+            ...verdict.issues,
+          ];
+          lastIssues = feedback;
+          continue;
+        } else critic = 'agreed';
+      } catch {
+        critic = 'unavailable';
+      }
+    }
+    return { scene: { ...candidate, review: { rounds: round, score: rules.score, critic, rejected: round - 1 } } };
   }
+  return {
+    scene: { ...template, review: { rounds: s.rounds, score: 0, critic: 'skipped', rejected: s.rounds } },
+    fallbackReason: `The discriminator rejected ${s.rounds} AI drafts, so the template scene is used. Last reason: ${lastIssues[0] ?? 'unknown'}`,
+  };
 };
 
 export type NoteVerdict = { verdict: 'solid' | 'partial' | 'off'; feedback: string; source: 'ai' | 'offline' };

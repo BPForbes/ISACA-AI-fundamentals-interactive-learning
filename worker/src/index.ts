@@ -211,15 +211,24 @@ const save = async (env: Env, body: unknown, now: string) => {
 };
 
 const progress = async (env: Env) => {
-  const [terms, sessions, state] = await Promise.all([
+  const [terms, sessions, state, events] = await Promise.all([
     env.DB.prepare('SELECT data FROM term_progress').all<{ data: string }>(),
     env.DB.prepare('SELECT data FROM sessions ORDER BY ended_at DESC LIMIT 20').all<{ data: string }>(),
     env.DB.prepare("SELECT value FROM learner_state WHERE key = 'remediation'").first<{ value: string }>(),
+    // Recent answers let a new device train the progress model.
+    env.DB.prepare(
+      `SELECT id, session_id, at, chain_id, anchor, mode, setting_id, correct, risk, points, source FROM scene_events
+       ORDER BY at DESC LIMIT ${MAX_EVENTS}`,
+    ).all<Record<string, string | number>>(),
   ]);
   return {
     terms: terms.results.map((r) => JSON.parse(r.data)),
     sessions: sessions.results.map((r) => JSON.parse(r.data)),
     remediation: state ? JSON.parse(state.value) : [],
+    events: events.results.reverse().map((e) => ({
+      id: e.id, sessionId: e.session_id, at: e.at, chainId: e.chain_id, anchor: e.anchor, mode: e.mode, settingId: e.setting_id,
+      correct: e.correct === 1, risk: e.risk, points: e.points, source: e.source, note: '',
+    })),
   };
 };
 

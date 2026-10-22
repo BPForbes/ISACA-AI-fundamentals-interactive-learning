@@ -32,12 +32,21 @@ export type Choice = {
   explanation: string;
 };
 
+/** How the discriminator judged an AI scene before it was shown. */
+export type SceneReview = {
+  rounds: number;
+  rejected: number;
+  score: number;
+  critic: 'agreed' | 'skipped' | 'unavailable';
+};
+
 export type Scene = {
   narration: string;
   prompt: string;
   choices: Choice[];
   socratic: string;
   source: 'ai' | 'offline';
+  review?: SceneReview;
 };
 
 const MAX_TEXT = 1200;
@@ -62,7 +71,7 @@ const bool = (value: unknown): boolean => {
  * of which exactly one is correct; anything else returns null and the caller
  * falls back to the offline generator.
  */
-export const sanitizeScene = (raw: unknown): Omit<Scene, 'source'> | null => {
+export const sanitizeScene = (raw: unknown): Omit<Scene, 'source' | 'review'> | null => {
   if (!raw || typeof raw !== 'object') return null;
   const r = raw as Record<string, unknown>;
   const narration = text(r.narration);

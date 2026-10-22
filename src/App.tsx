@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CHAIN_BY_ID } from './data/chains';
 import { buildSceneRequest, DEFER_AFTER_MISSES, recommendChain, startExpedition, type SceneRequest } from './engine/director';
 import type { Choice, Scene } from './engine/scene';
+import { fitTracker, type GateDecision, type TrackerModel } from './engine/tracker';
 import { loadLlmSettings, saveLlmSettings, type LlmSettings } from './llm/config';
 import { activeBackend, evaluateNote, generateScene, type NoteVerdict } from './llm';
 import {
@@ -22,7 +23,7 @@ const newId = () => (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? c
 
 type View = 'map' | 'journal' | 'settings';
 
-export type Answered = { choice: Choice; points: number; risk: number };
+export type Answered = { choice: Choice; points: number; risk: number; gate: GateDecision };
 
 export type SaveStatus = { kind: 'idle' | 'saving' | 'saved' | 'error'; message?: string };
 
@@ -39,9 +40,38 @@ export default function App() {
   const [verdict, setVerdict] = useState<NoteVerdict | null>(null);
   const [campOpen, setCampOpen] = useState(false);
   const [save, setSave] = useState<SaveStatus>({ kind: 'idle' });
+  const [tracker, setTracker] = useState<TrackerModel | null>(null);
   const sceneToken = useRef(0);
+  const trainedAt = useRef(-1);
 
   useEffect(() => saveDraft(session), [session]);
+
+  // Retrain the progress model in a Web Worker whenever enough new answers arrived.
+  const historyLength = session.history.length;
+  const trainer = useRef<Worker | null>(null);
+  const trainRequest = useRef(0);
+  useEffect(() => {
+    if (typeof Worker === 'undefined') return;
+    const worker = new Worker(new URL('./engine/trackerWorker.ts', import.meta.url), { type: 'module' });
+    worker.onmessage = (e: MessageEvent<{ id: number; model: TrackerModel }>) => {
+      if (e.data.id === trainRequest.current) setTracker(e.data.model);
+    };
+    trainer.current = worker;
+    return () => {
+      worker.terminate();
+      trainer.current = null;
+      // A request sent to this worker is lost; let the next worker train again.
+      trainedAt.current = -1;
+    };
+  }, []);
+  useEffect(() => {
+    if (trainedAt.current >= 0 && historyLength - trainedAt.current < 5) return;
+    trainedAt.current = historyLength;
+    const id = ++trainRequest.current;
+    if (trainer.current) trainer.current.postMessage({ id, history: session.history });
+    else setTracker(fitTracker(session.history));
+    // session.history is read when the length changes; the length is the trigger.
+  }, [historyLength]);
   useEffect(() => saveLlmSettings(llm), [llm]);
   useEffect(() => saveCloudConfig(cloud), [cloud]);
 
@@ -85,10 +115,10 @@ export default function App() {
   const choose = (choice: Choice, risk: number) => {
     if (!req || !scene || answered) return;
     const outcome = answerScene(session, {
-      req, scene, choice, risk, explained: false, note: '', now: nowIso(), eventId: newId(),
+      req, scene, choice, risk, explained: false, note: '', now: nowIso(), eventId: newId(), model: tracker,
     });
     setSession(outcome.state);
-    setAnswered({ choice, points: outcome.points, risk });
+    setAnswered({ choice, points: outcome.points, risk, gate: outcome.gate });
     if (outcome.campDue) setCampOpen(true);
   };
 
@@ -187,7 +217,7 @@ export default function App() {
           />
         )}
         {view === 'journal' && (
-          <Journal session={session} onEndSession={endSession} onSave={saveToCloud} cloudReady={isCloudConfigured(cloud)} />
+          <Journal session={session} tracker={tracker} onEndSession={endSession} onSave={saveToCloud} cloudReady={isCloudConfigured(cloud)} />
         )}
         {view === 'map' && !exp && (
           <MapView session={session} recommendedId={recommended.id} onStart={start} backend={backend} onSettings={() => setView('settings')} />

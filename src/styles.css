@@ -183,6 +183,9 @@ td.lvl-proficient, td.lvl-mastered { color: var(--good); }
 .verdict.solid { border-left: 3px solid var(--good); }
 .verdict.partial { border-left: 3px solid var(--warn); }
 .verdict.off { border-left: 3px solid var(--bad); }
+.gate { padding: 0.5rem 0.7rem; border-radius: 8px; background: var(--panel-2); border-left: 3px solid var(--accent); }
+.gate.hold { border-left-color: var(--warn); }
+.gate small { display: block; }
 .defer { border: 1px dashed var(--line); border-radius: 10px; padding: 0.6rem; }
 
 /* Modal */

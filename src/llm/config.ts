@@ -5,8 +5,14 @@
 
 export type LlmMode = 'auto' | 'browser' | 'ollama' | 'cloud' | 'offline';
 
+// How AI scenes are checked before they are shown: rules only, or rules plus a blind AI critic.
+export type DiscriminatorMode = 'rules' | 'rules+ai';
+
 export type LlmSettings = {
   mode: LlmMode;
+  discriminator: DiscriminatorMode;
+  // Generator attempts before falling back to the template scene.
+  rounds: number;
   browserModel: string;
   ollamaUrl: string;
   ollamaModel: string;
@@ -27,6 +33,8 @@ const DEFAULT_OLLAMA_MODEL = import.meta.env.VITE_OLLAMA_MODEL ?? 'llama3.1:8b';
 
 export const defaultLlmSettings = (): LlmSettings => ({
   mode: 'auto',
+  discriminator: 'rules+ai',
+  rounds: 3,
   browserModel: DEFAULT_BROWSER_MODEL,
   ollamaUrl: DEFAULT_OLLAMA_URL,
   ollamaModel: DEFAULT_OLLAMA_MODEL,
@@ -44,6 +52,8 @@ export const loadLlmSettings = (): LlmSettings => {
     const p = JSON.parse(raw) as Partial<LlmSettings>;
     return {
       mode: MODES.includes(p.mode as LlmMode) ? (p.mode as LlmMode) : d.mode,
+      discriminator: p.discriminator === 'rules' ? 'rules' : d.discriminator,
+      rounds: typeof p.rounds === 'number' && p.rounds >= 1 && p.rounds <= 5 ? Math.round(p.rounds) : d.rounds,
       browserModel: str(p.browserModel, d.browserModel),
       ollamaUrl: str(p.ollamaUrl, d.ollamaUrl),
       ollamaModel: str(p.ollamaModel, d.ollamaModel),

@@ -5,7 +5,7 @@
 import { CHAPTERS } from '../data/terms';
 import type { SceneRequest } from '../engine/director';
 import { STAGE_NAMES } from '../engine/progress';
-import { MODE_LABELS } from '../engine/scene';
+import { MODE_LABELS, type Scene } from '../engine/scene';
 
 const MODE_GUIDANCE: Record<string, string> = {
   diagnostic: 'Probe whether the learner recognizes the concept in a realistic situation. Keep it approachable.',
@@ -27,7 +27,18 @@ export const SCENE_SCHEMA = `{
   "socratic": string     // one short follow-up question asking the learner to explain their reasoning
 }`;
 
-export const buildScenePrompt = (req: SceneRequest): { system: string; user: string } => {
+/** The template as the generator and critic see it: text and the answer key, nothing else. */
+const templateJson = (t: Scene, withKey: boolean) => JSON.stringify({
+  narration: t.narration,
+  prompt: t.prompt,
+  choices: t.choices.map((c) => (withKey ? { text: c.text, correct: c.correct } : { id: c.id, text: c.text })),
+});
+
+export const buildScenePrompt = (
+  req: SceneRequest,
+  template?: Scene,
+  feedback: string[] = [],
+): { system: string; user: string } => {
   const supporting = req.supporting.map((t) => `- ${t.term} (Ch. ${t.chapter}): ${t.definition}`).join('\n');
   const story = req.storySoFar.length ? req.storySoFar.map((s) => `- ${s}`).join('\n') : '- (this is the opening scene)';
   const naturalUse = req.stage >= 3 && req.stage !== 5;
@@ -63,6 +74,13 @@ Team meters (0-100): trust ${req.meters.trust}, budget ${req.meters.budget}, ris
 Story so far:
 ${story}
 
+${req.confirming ? 'The learner just got this link right; this scene confirms it from a different angle before the story moves on.\n' : ''}${template ? `
+Reference template (a real scene built from the exam definitions). Keep its correct concept and the kind of near-miss distractors it uses, but write a richer, more realistic story in the setting:
+${templateJson(template, true)}
+` : ''}${feedback.length ? `
+A reviewer rejected your previous draft. Fix every point:
+${feedback.map((f) => `- ${f}`).join('\n')}
+` : ''}
 Write the next scene as JSON.`;
   return { system, user };
 };
@@ -73,4 +91,20 @@ export const buildNotePrompt = (req: SceneRequest, choiceText: string, note: str
 Exam definition: ${req.anchor.definition}
 ${req.contrast ? `Closest confusion: ${req.contrast.partner.term}. Deciding clue: ${req.contrast.clue}\n` : ''}The learner chose: ${choiceText}
 Their explanation: ${note}`,
+});
+
+/**
+ * The critic answers the candidate's question blind, as a learner would. If it
+ * picks a different choice from the one keyed correct, the scene is ambiguous
+ * or mis-keyed and goes back to the generator.
+ */
+export const buildCriticPrompt = (req: SceneRequest, candidate: Scene): { system: string; user: string } => ({
+  system: `You review scenes for an ISACA AI Fundamentals study game. Answer the scene's question yourself using only the exam definition given, then check the scene for anything that contradicts that definition. Output JSON only: {"answer": "<choice id>", "contradicts_definition": boolean, "issues": [string]}`,
+  user: `Concept being tested: ${req.anchor.term}
+Exam definition: ${req.anchor.definition}
+${req.contrast ? `Closest confusion: ${req.contrast.partner.term} — ${req.contrast.partner.definition}\n` : ''}
+Scene:
+${templateJson(candidate, false)}
+
+Which choice id is correct, and does any part of the scene contradict the exam definition?`,
 });

@@ -30,6 +30,9 @@ export type Expedition = {
   settingId: string;
   stepIndex: number;
   missesOnStep: number;
+  // Correct answers on this link that the move-on gate held for confirmation.
+  confirmationsOnStep: number;
+  lastOnStepCorrect: boolean;
   meters: Meters;
   log: StoryBeat[];
   status: 'active' | 'complete';
@@ -49,6 +52,8 @@ export type SceneRequest = {
   storySoFar: string[];
   meters: Meters;
   missesOnStep: number;
+  // The last answer on this link was right, but the move-on gate wants one more.
+  confirming: boolean;
 };
 
 const clamp = (n: number) => Math.max(0, Math.min(100, n));
@@ -90,6 +95,8 @@ export const startExpedition = (
     settingId: setting.id,
     stepIndex: 0,
     missesOnStep: 0,
+    confirmationsOnStep: 0,
+    lastOnStepCorrect: false,
     meters: { trust: 60, budget: 70, risk: 30 },
     log: [],
     status: 'active',
@@ -102,7 +109,12 @@ export const buildSceneRequest = (exp: Expedition, progress: (id: string) => Ter
   const step = chain.steps[exp.stepIndex];
   const anchor = TERM_BY_ID.get(step.anchor)!;
   const p = progress(anchor.id);
-  const mode = chooseMode(p, anchor.id, exp.missesOnStep);
+  const confirming = exp.lastOnStepCorrect === true;
+  const mode: TeachingMode = !confirming
+    ? chooseMode(p, anchor.id, exp.missesOnStep)
+    : CALCULATION_TERMS.has(anchor.id)
+      ? 'calculation'
+      : p && p.stage >= 3 && p.stage !== 5 ? 'integration' : 'guided';
   const partners = contrastPartners(anchor.id);
   let contrast: SceneRequest['contrast'];
   if (partners.length > 0 && (mode === 'contrast' || mode === 'remediation' || mode === 'integration')) {
@@ -122,22 +134,28 @@ export const buildSceneRequest = (exp: Expedition, progress: (id: string) => Ter
     storySoFar: exp.log.slice(-3).map((b) => b.consequence).filter(Boolean),
     meters: exp.meters,
     missesOnStep: exp.missesOnStep,
+    confirming,
   };
 };
 
 /**
- * Applies a decision to the expedition. A correct anchor clears the step; a
- * miss keeps the same anchor in play (re-asked in new wording) and costs the
- * team trust and budget, so mistakes have story consequences.
+ * Applies a decision to the expedition. A miss keeps the same anchor in play
+ * (re-asked in new wording) and costs the team trust and budget, so mistakes
+ * have story consequences. A correct answer clears the link only when the
+ * move-on gate (rules, plus the progress model once trusted) says `advance`;
+ * otherwise the link is confirmed once more from a new angle.
  */
-export const applyDecision = (exp: Expedition, beat: Omit<StoryBeat, 'stepIndex'>): Expedition => {
+export const applyDecision = (exp: Expedition, beat: Omit<StoryBeat, 'stepIndex'>, advance = beat.correct): Expedition => {
   const chain = CHAIN_BY_ID.get(exp.chainId)!;
   const m = exp.meters;
   const meters: Meters = beat.correct
     ? { trust: clamp(m.trust + 8), budget: clamp(m.budget - 2), risk: clamp(m.risk - 6) }
     : { trust: clamp(m.trust - 10), budget: clamp(m.budget - 8), risk: clamp(m.risk + 10) };
   const log = [...exp.log, { ...beat, stepIndex: exp.stepIndex }];
-  if (!beat.correct) return { ...exp, meters, log, missesOnStep: exp.missesOnStep + 1 };
+  if (!beat.correct) return { ...exp, meters, log, missesOnStep: exp.missesOnStep + 1, lastOnStepCorrect: false };
+  if (!advance) {
+    return { ...exp, meters, log, confirmationsOnStep: (exp.confirmationsOnStep ?? 0) + 1, lastOnStepCorrect: true };
+  }
   const stepIndex = exp.stepIndex + 1;
   const done = stepIndex >= chain.steps.length;
   return {
@@ -146,6 +164,8 @@ export const applyDecision = (exp: Expedition, beat: Omit<StoryBeat, 'stepIndex'
     log,
     stepIndex: done ? exp.stepIndex : stepIndex,
     missesOnStep: 0,
+    confirmationsOnStep: 0,
+    lastOnStepCorrect: false,
     status: done ? 'complete' : 'active',
   };
 };
@@ -155,7 +175,14 @@ export const deferStep = (exp: Expedition): Expedition => {
   const chain = CHAIN_BY_ID.get(exp.chainId)!;
   const stepIndex = exp.stepIndex + 1;
   const done = stepIndex >= chain.steps.length;
-  return { ...exp, stepIndex: done ? exp.stepIndex : stepIndex, missesOnStep: 0, status: done ? 'complete' : 'active' };
+  return {
+    ...exp,
+    stepIndex: done ? exp.stepIndex : stepIndex,
+    missesOnStep: 0,
+    confirmationsOnStep: 0,
+    lastOnStepCorrect: false,
+    status: done ? 'complete' : 'active',
+  };
 };
 
 const WEAKNESS: Record<string, number> = { Unknown: 1, Familiar: 0.8, Competent: 0.5, Proficient: 0.2, Mastered: 0 };

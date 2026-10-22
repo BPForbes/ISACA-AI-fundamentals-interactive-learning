@@ -14,7 +14,7 @@ const play = (s: SessionState, correct: boolean) => {
   const req = buildSceneRequest(s.expedition!, (id) => s.progress[id]);
   const scene = generateOfflineScene(req, rng);
   const choice = scene.choices.find((c) => c.correct === correct)!;
-  return answerScene(s, { req, scene, choice, risk: 1, explained: false, note: '', now: tick(), eventId: `e${clock}` });
+  return answerScene(s, { req, scene, choice, risk: 1, explained: false, note: '', now: tick(), eventId: `e${clock}`, model: null });
 };
 
 const fresh = () => beginExpedition(newSession(tick(), 's1'), startExpedition('indicators', { lastKind: null, now: tick(), rng }));
@@ -63,6 +63,22 @@ describe('session store', () => {
     expect(due).toBe(true);
   });
 
+  it('keeps every answer in history and asks for a confirmation after a miss', () => {
+    let s = play(fresh(), false).state;
+    const held = play(s, true);
+    expect(held.gate.advance).toBe(false);
+    expect(held.state.expedition!.stepIndex).toBe(0);
+    s = held.state;
+    expect(buildSceneRequest(s.expedition!, (id) => s.progress[id]).confirming).toBe(true);
+    const moved = play(s, true);
+    expect(moved.gate.advance).toBe(true);
+    expect(moved.state.expedition!.stepIndex).toBe(1);
+    expect(moved.state.history.map((e) => e.correct)).toEqual([false, true, true]);
+    // History survives saving and a new session, because the progress model trains on it.
+    const saved = markSaved(moved.state, buildSavePayload(moved.state, tick(), 'sv'), tick());
+    expect(newSession(tick(), 's9', saved).history).toHaveLength(3);
+  });
+
   it('defers a stuck link into the rematch queue', () => {
     const s = deferCurrentStep(fresh());
     expect(s.expedition!.stepIndex).toBe(1);
@@ -83,7 +99,9 @@ describe('session store', () => {
       terms: [{ ...local, attempts: 99, updatedAt: '2000-01-01T00:00:00Z' }, { ...local, id: 'kpi', updatedAt: '2030-01-01T00:00:00Z' }, { ...local, id: 'not-a-term' }],
       sessions: [],
       remediation: ['kgi', 'bogus'],
+      events: [{ id: 'remote-1', sessionId: 'old', at: '2026-01-01T00:00:00Z', chainId: 'indicators', anchor: 'kpi', mode: 'guided', settingId: 'emr', correct: true, risk: 1, points: 10, source: 'offline', note: '' }],
     });
+    expect(s.history[0].id).toBe('remote-1');
     expect(s.progress['model-assessment'].attempts).toBe(1);
     expect(s.progress.kpi).toBeDefined();
     expect(s.progress['not-a-term']).toBeUndefined();
