@@ -69,7 +69,14 @@ it persistent), so later visits load it from disk with no download. **Remove fro
 the space.
 
 Free tiers and model names change often, so the app reads each provider's live model list rather than hard-coding
-it. Your API key is stored only in your browser and sent only to the provider you chose. Use a key you can revoke.
+it.
+
+**Keeping your API key safe.** By default the key stays in your browser and is sent only to the provider. If you have
+connected the cloud backend, **Upload to cloud vault** stores it there instead: encrypted with AES-256-GCM under a
+Worker secret, never sent back to any page, and removed from your browser. Your Worker then adds it to each request
+itself, so a copy of your browser's storage no longer exposes the key, and any device signed in to your backend can
+use it without typing it again. Details are in [`worker/README.md`](worker/README.md#api-key-vault). Either way,
+use a key you can revoke.
 
 ## How scenes are made: a GAN-inspired loop
 

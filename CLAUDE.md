@@ -19,4 +19,4 @@ Shared rules live in [AGENTS.md](AGENTS.md); read and follow them first.
 | Engine | `src/engine/` | Mastery and terminology ladder, scoring, teaching-mode director, offline scene generator (templates), scene sanitizer, discriminator, LSTM progress tracker (`lstm.ts`, `tracker.ts`, trained in `trackerWorker.ts`) |
 | AI | `src/llm/` | Free hosted models (`hosted.ts`: Groq, Gemini, OpenRouter), WebLLM, Ollama and Workers AI backends; the generate–discriminate loop in `index.ts` |
 | Session | `src/session/store.ts` | In-session state, dirty tracking, save payloads, study-context export |
-| Cloud | `src/sync/cloud.ts`, `worker/` | Save/load client and the Cloudflare Worker + D1 schema |
+| Cloud | `src/sync/cloud.ts`, `worker/` | Save/load and key-vault client; the Cloudflare Worker, its encrypted API-key vault (`worker/src/vault.ts`) and the D1 migrations |

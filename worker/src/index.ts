@@ -5,13 +5,20 @@
 // bearer token, whose SHA-256 is the SYNC_TOKEN_SHA256 secret; with no secret
 // set the API refuses everything. Only origins in ALLOWED_ORIGINS get CORS.
 
+import { HttpError, num, obj, str } from './http';
+import { chatWithStoredKey, deleteKey, listStored, modelsWithStoredKey, storeKey } from './vault';
+
 export interface Env {
   DB: D1Database;
   AI?: Ai;
   SYNC_TOKEN_SHA256?: string;
   ALLOWED_ORIGINS?: string;
   AI_MODEL?: string;
+  // Base64 of 32 random bytes; encrypts hosted-model API keys at rest. Set with `wrangler secret put`.
+  KEY_ENCRYPTION_KEY?: string;
 }
+
+const VAULT_ROUTE = /^\/api\/vault(?:\/([a-z]+)(?:\/(chat|models))?)?$/;
 
 const MAX_BODY_BYTES = 512 * 1024;
 const MAX_TERMS = 500;
@@ -21,11 +28,6 @@ const ID = /^[A-Za-z0-9._:-]{1,80}$/;
 const TERM_ID = /^[a-z0-9-]{1,64}$/;
 const DEFAULT_MODEL = '@cf/meta/llama-3.1-8b-instruct';
 
-class HttpError extends Error {
-  constructor(readonly status: number, message: string) {
-    super(message);
-  }
-}
 
 const allowedOrigins = (env: Env) =>
   (env.ALLOWED_ORIGINS ?? '').split(',').map((o) => o.trim()).filter(Boolean);
@@ -34,7 +36,7 @@ const corsHeaders = (origin: string | null, env: Env): Record<string, string> =>
   origin && allowedOrigins(env).includes(origin)
     ? {
       'Access-Control-Allow-Origin': origin,
-      'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+      'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
       'Access-Control-Allow-Headers': 'Authorization, Content-Type',
       'Access-Control-Max-Age': '600',
       Vary: 'Origin',
@@ -80,22 +82,10 @@ const readJson = async (request: Request): Promise<unknown> => {
 
 // ---------- validation ----------
 
-const obj = (v: unknown, what: string): Record<string, unknown> => {
-  if (!v || typeof v !== 'object' || Array.isArray(v)) throw new HttpError(400, `${what} must be an object.`);
-  return v as Record<string, unknown>;
-};
-const str = (v: unknown, what: string, max = 200, pattern?: RegExp): string => {
-  if (typeof v !== 'string' || v.length > max || (pattern && !pattern.test(v))) throw new HttpError(400, `${what} is invalid.`);
-  return v;
-};
 const iso = (v: unknown, what: string) => {
   const s = str(v, what, 40);
   if (Number.isNaN(Date.parse(s))) throw new HttpError(400, `${what} is not a date.`);
   return s;
-};
-const num = (v: unknown, what: string, min = -1e9, max = 1e9): number => {
-  if (typeof v !== 'number' || !Number.isFinite(v) || v < min || v > max) throw new HttpError(400, `${what} is invalid.`);
-  return v;
 };
 const arr = (v: unknown, what: string, max: number): unknown[] => {
   if (!Array.isArray(v) || v.length > max) throw new HttpError(400, `${what} is invalid.`);
@@ -262,6 +252,18 @@ export default {
     try {
       if (url.pathname === '/api/health' && request.method === 'GET') return json({ ok: true }, 200, cors);
       const route = `${request.method} ${url.pathname}`;
+      const vault = VAULT_ROUTE.exec(url.pathname);
+      if (vault) {
+        await authorize(request, env);
+        const [, provider, action] = vault;
+        const now = new Date().toISOString();
+        if (!provider && request.method === 'GET') return json(await listStored(env), 200, cors);
+        if (provider && !action && request.method === 'PUT') return json(await storeKey(env, provider, await readJson(request), now), 200, cors);
+        if (provider && !action && request.method === 'DELETE') return json(await deleteKey(env, provider), 200, cors);
+        if (provider && action === 'chat' && request.method === 'POST') return json(await chatWithStoredKey(env, provider, await readJson(request)), 200, cors);
+        if (provider && action === 'models' && request.method === 'GET') return json(await modelsWithStoredKey(env, provider), 200, cors);
+        return json({ error: 'Not found.' }, 404, cors);
+      }
       if (!['GET /api/progress', 'POST /api/save', 'POST /api/generate'].includes(route)) {
         return json({ error: 'Not found.' }, 404, cors);
       }

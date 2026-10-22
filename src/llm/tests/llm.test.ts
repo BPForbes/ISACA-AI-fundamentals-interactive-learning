@@ -6,7 +6,7 @@ import { buildScenePrompt } from '../prompt';
 
 const rng = () => 0.5;
 const req = buildSceneRequest(startExpedition('deepfakes', { lastKind: null, now: 'n', rng }), () => undefined);
-const noCloud = { cloud: { url: '', token: '' }, hosted: { provider: 'groq' as const, baseUrl: '', model: '', apiKey: '' } };
+const noCloud = { cloud: { url: '', token: '' }, hosted: { provider: 'groq' as const, baseUrl: '', model: '', apiKey: '', keyInCloud: false } };
 const ollama = { ...defaultLlmSettings(), mode: 'ollama' as const };
 
 const ollamaReplies = (response: string) =>

@@ -20,7 +20,7 @@ export type Backends = { cloud: CloudConfig; hosted: HostedConfig };
 /** "auto" prefers a free hosted model, then a browser model loaded this session, and Cloudflare last. */
 export const activeBackend = (s: LlmSettings, b: Backends): Backend => {
   if (s.mode === 'auto') {
-    if (isHostedConfigured(b.hosted)) return 'hosted';
+    if (isHostedConfigured(b.hosted, b.cloud)) return 'hosted';
     if (isBrowserModelReady(s.browserModel)) return 'browser';
     if (isCloudConfigured(b.cloud)) return 'cloud';
     return 'offline';
@@ -31,7 +31,7 @@ export const activeBackend = (s: LlmSettings, b: Backends): Backend => {
 const complete = async (backend: Backend, s: LlmSettings, b: Backends, system: string, user: string, maxTokens: number) => {
   switch (backend) {
     case 'hosted':
-      return completeWithHosted(b.hosted, system, user, maxTokens);
+      return completeWithHosted(b.hosted, system, user, maxTokens, b.cloud);
     case 'browser':
       return completeWithWebLlm(s.browserModel, system, user, maxTokens);
     case 'ollama':

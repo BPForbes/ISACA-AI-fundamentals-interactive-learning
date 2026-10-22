@@ -1,13 +1,17 @@
 // A D1-shaped wrapper over node:sqlite so the Worker's SQL runs against a real
 // SQLite engine in tests. batch() is one transaction, as it is on D1.
-import { readFileSync } from 'node:fs';
+import { readdirSync, readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
 type Bound = { sql: string; args: unknown[] };
 
-export const createFakeD1 = (migration: string) => {
+/** Applies every migration in the directory, in order, as `wrangler d1 migrations apply` does. */
+export const createFakeD1 = (migrationsDir: string) => {
   const db = new DatabaseSync(':memory:');
-  db.exec(readFileSync(migration, 'utf8'));
+  for (const file of readdirSync(migrationsDir).filter((f) => f.endsWith('.sql')).sort()) {
+    db.exec(readFileSync(join(migrationsDir, file), 'utf8'));
+  }
   const exec = (b: Bound) => {
     const stmt = db.prepare(b.sql);
     return stmt.run(...(b.args as never[]));

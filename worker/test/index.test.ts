@@ -8,7 +8,7 @@ let env: Env;
 let fake: ReturnType<typeof createFakeD1>;
 
 beforeEach(async () => {
-  fake = createFakeD1(new URL('../migrations/0001_init.sql', import.meta.url).pathname);
+  fake = createFakeD1(new URL('../migrations', import.meta.url).pathname);
   env = {
     DB: fake.d1 as unknown as D1Database,
     SYNC_TOKEN_SHA256: await sha256Hex(TOKEN),

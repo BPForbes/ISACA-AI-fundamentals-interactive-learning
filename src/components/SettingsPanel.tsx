@@ -2,10 +2,10 @@ import { useEffect, useState } from 'react';
 import type { SaveStatus } from '../App';
 import { BROWSER_MODEL_OPTIONS, type LlmMode, type LlmSettings } from '../llm/config';
 import {
-  chooseModel, completeWithHosted, HOSTED_PROVIDERS, listHostedModels, modelOf, type HostedConfig, type HostedProviderId,
+  chooseModel, completeWithHosted, HOSTED_PROVIDERS, listHostedModels, modelOf, vaultSupports, type HostedConfig, type HostedProviderId,
 } from '../llm/hosted';
 import { hasWebGpu, isBrowserModelReady, isModelCached, preloadBrowserModel, removeCachedBrowserModel } from '../llm/webllm';
-import type { CloudConfig } from '../sync/cloud';
+import { deleteVaultKey, isCloudConfigured, listVaultKeys, uploadVaultKey, type CloudConfig, type StoredKey } from '../sync/cloud';
 
 type Props = {
   llm: LlmSettings;
@@ -33,11 +33,59 @@ export function SettingsPanel({ llm, onLlm, cloud, onCloud, onLoadCloud, save, h
   const [models, setModels] = useState<string[]>([]);
   const [hostedStatus, setHostedStatus] = useState('');
   const provider = HOSTED_PROVIDERS[hosted.provider];
+  const [vault, setVault] = useState<StoredKey[] | null>(null);
+  const cloudReady = isCloudConfigured(cloud);
+  const canVault = cloudReady && vaultSupports(hosted.provider);
+  const stored = vault?.find((k) => k.provider === hosted.provider);
+
+  // On a new device, a key already in the vault is picked up without re-entering it.
+  useEffect(() => {
+    if (!cloudReady) return;
+    let active = true;
+    listVaultKeys(cloud)
+      .then((keys) => {
+        if (!active) return;
+        setVault(keys);
+        if (!hosted.apiKey && !hosted.keyInCloud && keys.some((k) => k.provider === hosted.provider)) {
+          onHosted({ ...hosted, keyInCloud: true });
+        }
+      })
+      .catch(() => active && setVault(null));
+    return () => {
+      active = false;
+    };
+    // Re-check when the provider or the cloud connection changes.
+  }, [cloudReady, cloud.url, hosted.provider]);
+
+  const uploadKey = async () => {
+    setHostedStatus('Encrypting and storing the key…');
+    try {
+      const saved = await uploadVaultKey(cloud, hosted.provider, hosted.apiKey.trim());
+      setVault((v) => [...(v ?? []).filter((k) => k.provider !== saved.provider), saved]);
+      // The browser keeps no copy once the vault holds the key.
+      onHosted({ ...hosted, apiKey: '', keyInCloud: true });
+      setHostedStatus('Stored encrypted in your cloud vault. This browser no longer keeps a copy.');
+    } catch (error) {
+      setHostedStatus(error instanceof Error ? error.message : 'Upload failed.');
+    }
+  };
+
+  const removeKey = async () => {
+    if (!window.confirm(`Delete the ${provider.label} key from your cloud vault?`)) return;
+    try {
+      await deleteVaultKey(cloud, hosted.provider);
+      setVault((v) => (v ?? []).filter((k) => k.provider !== hosted.provider));
+      onHosted({ ...hosted, keyInCloud: false });
+      setHostedStatus('Deleted from the vault. Revoke it at the provider too if it may have leaked.');
+    } catch (error) {
+      setHostedStatus(error instanceof Error ? error.message : 'Delete failed.');
+    }
+  };
 
   const loadModels = async () => {
     setHostedStatus('Loading models…');
     try {
-      const list = await listHostedModels(hosted);
+      const list = await listHostedModels(hosted, cloud);
       setModels(list);
       const model = chooseModel(hosted, list);
       onHosted({ ...hosted, model });
@@ -50,7 +98,7 @@ export function SettingsPanel({ llm, onLlm, cloud, onCloud, onLoadCloud, save, h
   const testHosted = async () => {
     setHostedStatus('Testing…');
     try {
-      const reply = await completeWithHosted(hosted, 'Reply with JSON only.', 'Return {"ok": true}.', 20);
+      const reply = await completeWithHosted(hosted, 'Reply with JSON only.', 'Return {"ok": true}.', 20, cloud);
       setHostedStatus(reply ? `Connected to ${modelOf(hosted)}. New scenes will be written by it.` : 'Connected, but the model returned nothing.');
     } catch (error) {
       setHostedStatus(error instanceof Error ? error.message : 'The request failed (the provider may not allow browser requests).');
@@ -101,7 +149,8 @@ export function SettingsPanel({ llm, onLlm, cloud, onCloud, onLoadCloud, save, h
         <h2>Free hosted model</h2>
         <p className="small">
           The strongest free option: a large model on a provider's free tier, called directly from this page with your
-          own key. The key is stored only in this browser and sent only to {provider.label}.
+          own key. Keep the key in this browser, or upload it to your cloud vault, where it is stored encrypted and never
+          sent back.
         </p>
         <label className="field">
           Provider
@@ -110,7 +159,7 @@ export function SettingsPanel({ llm, onLlm, cloud, onCloud, onLoadCloud, save, h
             onChange={(e) => {
               setModels([]);
               setHostedStatus('');
-              onHosted({ ...hosted, provider: e.target.value as HostedProviderId, model: '' });
+              onHosted({ ...hosted, provider: e.target.value as HostedProviderId, model: '', apiKey: '', keyInCloud: false });
             }}
           >
             {Object.values(HOSTED_PROVIDERS).map((p) => <option key={p.id} value={p.id}>{p.label}</option>)}
@@ -123,18 +172,41 @@ export function SettingsPanel({ llm, onLlm, cloud, onCloud, onLoadCloud, save, h
         {hosted.provider === 'custom' && (
           <label className="field">Base URL<input placeholder="https://…/v1" value={hosted.baseUrl} onChange={(e) => onHosted({ ...hosted, baseUrl: e.target.value })} /></label>
         )}
-        <label className="field">
-          API key
-          <input type="password" autoComplete="off" value={hosted.apiKey} onChange={(e) => onHosted({ ...hosted, apiKey: e.target.value })} />
-        </label>
+        {hosted.keyInCloud ? (
+          <div className="gate go">
+            <strong>Key in your cloud vault</strong> — stored AES-GCM encrypted{stored ? `, updated ${new Date(stored.updatedAt).toLocaleString()}` : ''}.
+            It is never sent back to this page; your Worker adds it to each request to {provider.label}.
+            <div className="row">
+              <button className="ghost" onClick={() => onHosted({ ...hosted, keyInCloud: false })}>Replace key</button>
+              <button className="ghost" onClick={removeKey} disabled={!cloudReady}>Delete from vault</button>
+            </div>
+          </div>
+        ) : (
+          <>
+            <label className="field">
+              API key
+              <input type="password" autoComplete="off" value={hosted.apiKey} onChange={(e) => onHosted({ ...hosted, apiKey: e.target.value })} />
+            </label>
+            <p className="small">
+              {canVault
+                ? 'Kept in this browser until you upload it. Uploading removes it from this browser.'
+                : hosted.provider === 'custom'
+                  ? 'Custom providers are kept in this browser only; the vault serves the listed providers.'
+                  : 'Kept in this browser. Connect cloud sync below to store it encrypted in your vault instead.'}
+            </p>
+            {canVault && (
+              <button onClick={uploadKey} disabled={hosted.apiKey.trim().length < 8}>Upload to cloud vault (encrypted)</button>
+            )}
+          </>
+        )}
         <label className="field">
           Model
           <input list="hosted-models" placeholder={provider.defaultModel || 'Load the list'} value={hosted.model} onChange={(e) => onHosted({ ...hosted, model: e.target.value })} />
           <datalist id="hosted-models">{models.map((m) => <option key={m} value={m} />)}</datalist>
         </label>
         <div className="row">
-          <button onClick={loadModels} disabled={!hosted.apiKey}>Load model list</button>
-          <button onClick={testHosted} disabled={!hosted.apiKey || !modelOf(hosted)}>Test</button>
+          <button onClick={loadModels} disabled={!hosted.apiKey && !hosted.keyInCloud}>Load model list</button>
+          <button onClick={testHosted} disabled={(!hosted.apiKey && !hosted.keyInCloud) || !modelOf(hosted)}>Test</button>
         </div>
         {hostedStatus && <p className="small" role="status">{hostedStatus}</p>}
 

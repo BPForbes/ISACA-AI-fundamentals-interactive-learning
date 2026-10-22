@@ -3,8 +3,12 @@
 // that fits in a browser, and each has a free tier. Free tiers and model names
 // change often, so the model list is read live from the provider when possible.
 //
-// The key stays in this browser's localStorage and is sent only to the chosen
-// provider's own API, never to this site or the study Worker.
+// The key is kept one of two ways:
+// - in this browser's localStorage, sent only to the chosen provider; or
+// - uploaded to the learner's own Worker vault (worker/src/vault.ts), where it
+//   is stored AES-GCM encrypted and never returned; the browser then keeps no
+//   copy, and calls go through the Worker, which adds the key server-side.
+import { isCloudConfigured, vaultChat, vaultModels, type CloudConfig } from '../sync/cloud';
 
 export type HostedProviderId = 'groq' | 'gemini' | 'openrouter' | 'custom';
 
@@ -64,12 +68,19 @@ export const HOSTED_PROVIDERS: Record<HostedProviderId, HostedProvider> = {
   },
 };
 
-export type HostedConfig = { provider: HostedProviderId; baseUrl: string; model: string; apiKey: string };
+export type HostedConfig = {
+  provider: HostedProviderId;
+  baseUrl: string;
+  model: string;
+  // Empty when the key lives in the cloud vault.
+  apiKey: string;
+  keyInCloud: boolean;
+};
 
 const STORAGE_KEY = 'isaca-quest-hosted-v1';
 const TIMEOUT_MS = 60_000;
 
-export const defaultHostedConfig = (): HostedConfig => ({ provider: 'groq', baseUrl: '', model: '', apiKey: '' });
+export const defaultHostedConfig = (): HostedConfig => ({ provider: 'groq', baseUrl: '', model: '', apiKey: '', keyInCloud: false });
 
 export const loadHostedConfig = (): HostedConfig => {
   const d = defaultHostedConfig();
@@ -80,7 +91,8 @@ export const loadHostedConfig = (): HostedConfig => {
       provider: p.provider && p.provider in HOSTED_PROVIDERS ? p.provider : d.provider,
       baseUrl: typeof p.baseUrl === 'string' ? p.baseUrl : '',
       model: typeof p.model === 'string' ? p.model : '',
-      apiKey: typeof p.apiKey === 'string' ? p.apiKey : '',
+      apiKey: typeof p.apiKey === 'string' && p.keyInCloud !== true ? p.apiKey : '',
+      keyInCloud: p.keyInCloud === true,
     };
   } catch {
     return d;
@@ -89,7 +101,8 @@ export const loadHostedConfig = (): HostedConfig => {
 
 export const saveHostedConfig = (c: HostedConfig) => {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...c, apiKey: c.apiKey.trim(), baseUrl: c.baseUrl.trim() }));
+    // A key held in the vault is never written to browser storage.
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...c, apiKey: c.keyInCloud ? '' : c.apiKey.trim(), baseUrl: c.baseUrl.trim() }));
   } catch {
     // Without storage the settings last for the tab only.
   }
@@ -100,7 +113,13 @@ export const baseUrlOf = (c: HostedConfig): string =>
 
 export const modelOf = (c: HostedConfig): string => c.model.trim() || HOSTED_PROVIDERS[c.provider].defaultModel;
 
-export const isHostedConfigured = (c: HostedConfig): boolean => Boolean(c.apiKey.trim() && baseUrlOf(c) && modelOf(c));
+/** The vault serves the preset providers only, never a custom URL. */
+export const vaultSupports = (provider: HostedProviderId): boolean => provider !== 'custom';
+
+export const isHostedConfigured = (c: HostedConfig, cloud?: CloudConfig): boolean =>
+  c.keyInCloud
+    ? vaultSupports(c.provider) && Boolean(cloud && isCloudConfigured(cloud) && modelOf(c))
+    : Boolean(c.apiKey.trim() && baseUrlOf(c) && modelOf(c));
 
 export class HostedError extends Error {
   constructor(readonly status: number, message: string) {
@@ -136,7 +155,17 @@ const post = async (c: HostedConfig, body: Record<string, unknown>): Promise<Res
  * One chat completion. JSON mode is requested first; a few models reject that
  * option, so a 400 is retried once without it (sanitizeScene validates either way).
  */
-export const completeWithHosted = async (c: HostedConfig, system: string, user: string, maxTokens: number): Promise<string | null> => {
+export const completeWithHosted = async (
+  c: HostedConfig,
+  system: string,
+  user: string,
+  maxTokens: number,
+  cloud?: CloudConfig,
+): Promise<string | null> => {
+  if (c.keyInCloud) {
+    if (!cloud || !isCloudConfigured(cloud)) throw new HostedError(0, 'The key is in your cloud vault; connect cloud sync in Settings.');
+    return vaultChat(cloud, c.provider, { model: modelOf(c), system, user, maxTokens });
+  }
   const base = {
     model: modelOf(c),
     messages: [
@@ -154,13 +183,20 @@ export const completeWithHosted = async (c: HostedConfig, system: string, user: 
 };
 
 /** The provider's live model list, filtered to chat models and sorted with the preferred ones first. */
-export const listHostedModels = async (c: HostedConfig): Promise<string[]> => {
-  const response = await fetch(`${baseUrlOf(c)}/models`, { headers: { Authorization: `Bearer ${c.apiKey.trim()}` } });
-  if (!response.ok) throw new HostedError(response.status, describe(c, response.status, await response.text()));
-  const data = (await response.json()) as { data?: { id?: unknown }[] };
+export const listHostedModels = async (c: HostedConfig, cloud?: CloudConfig): Promise<string[]> => {
+  let raw: string[];
+  if (c.keyInCloud) {
+    if (!cloud || !isCloudConfigured(cloud)) throw new HostedError(0, 'The key is in your cloud vault; connect cloud sync in Settings.');
+    raw = await vaultModels(cloud, c.provider);
+  } else {
+    const response = await fetch(`${baseUrlOf(c)}/models`, { headers: { Authorization: `Bearer ${c.apiKey.trim()}` } });
+    if (!response.ok) throw new HostedError(response.status, describe(c, response.status, await response.text()));
+    const data = (await response.json()) as { data?: { id?: unknown }[] };
+    raw = (data.data ?? []).map((m) => (typeof m.id === 'string' ? m.id : ''));
+  }
   const provider = HOSTED_PROVIDERS[c.provider];
-  const ids = (data.data ?? [])
-    .map((m) => (typeof m.id === 'string' ? m.id.replace(/^models\//, '') : ''))
+  const ids = raw
+    .map((id) => id.replace(/^models\//, ''))
     .filter((id) => id && provider.keep(id));
   const rank = (id: string) => {
     const i = provider.prefer.findIndex((r) => r.test(id));

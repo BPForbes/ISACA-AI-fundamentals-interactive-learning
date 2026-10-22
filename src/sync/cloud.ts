@@ -99,3 +99,24 @@ export const completeWithCloud = async (c: CloudConfig, system: string, user: st
   })).json()) as { response?: string };
   return data.response ?? null;
 };
+
+// ---------- encrypted key vault (worker/src/vault.ts) ----------
+
+export type StoredKey = { provider: string; updatedAt: string };
+
+export const listVaultKeys = async (c: CloudConfig): Promise<StoredKey[]> =>
+  ((await (await request(c, '/api/vault')).json()) as { providers: StoredKey[] }).providers;
+
+/** Uploads a provider key; the Worker encrypts it and never sends it back. */
+export const uploadVaultKey = async (c: CloudConfig, provider: string, apiKey: string): Promise<StoredKey> =>
+  (await request(c, `/api/vault/${encodeURIComponent(provider)}`, { method: 'PUT', body: JSON.stringify({ apiKey }) })).json();
+
+export const deleteVaultKey = async (c: CloudConfig, provider: string): Promise<void> => {
+  await request(c, `/api/vault/${encodeURIComponent(provider)}`, { method: 'DELETE' });
+};
+
+export const vaultChat = async (c: CloudConfig, provider: string, body: { model: string; system: string; user: string; maxTokens: number }): Promise<string | null> =>
+  ((await (await request(c, `/api/vault/${encodeURIComponent(provider)}/chat`, { method: 'POST', body: JSON.stringify(body) })).json()) as { response: string | null }).response;
+
+export const vaultModels = async (c: CloudConfig, provider: string): Promise<string[]> =>
+  ((await (await request(c, `/api/vault/${encodeURIComponent(provider)}/models`)).json()) as { models: string[] }).models;

@@ -28,6 +28,10 @@ plus a Cloudflare Worker (`worker/`) that stores progress in D1 and can generate
 - Backend order for "auto" is: free hosted model, in-browser model, Cloudflare Workers AI (last resort), offline.
   A hosted-provider API key is the learner's own: it lives only in their browser's localStorage, is sent only to
   that provider, and must never appear in an error message, log, save payload or test literal.
+- Uploaded provider keys live only in the Worker vault (`worker/src/vault.ts`): AES-GCM under the
+  `KEY_ENCRYPTION_KEY` secret, provider-bound additional data, ciphertext in D1. Never add a route that returns a
+  key, never forward a provider's error body (it can quote the key), and never let a caller choose the URL a key is
+  sent to. A vaulted key is never written to browser storage.
 - No secret in the tree. The sync token is chosen by the learner, stored only in their browser, and the Worker
   holds only its SHA-256 as a `wrangler secret`. Never put a token or its hash in `wrangler.toml` or a test.
 - The Worker refuses every authenticated route while `SYNC_TOKEN_SHA256` is unset, and limits CORS to
