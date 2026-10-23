@@ -146,7 +146,7 @@ function DataPanel({ config, result, onChange, disabled }: PanelProps) {
               <Term id={`${m}-sampling`}>{m === 'random' ? 'Random (probability)' : m === 'convenience' ? 'Convenience' : 'Stratified'}</Term>
             </label>
           ))}
-          <label className="field">Sample size: <strong className="mono">{d.sampleSize}</strong>
+          <label className="field"><span>Sample size: <strong className="mono">{d.sampleSize}</strong></span>
             <input type="range" min={12} max={200} step={4} value={d.sampleSize} onChange={(e) => set({ sampleSize: Number(e.target.value) })} />
           </label>
           <label className="check"><input type="checkbox" checked={d.cleanse} onChange={(e) => set({ cleanse: e.target.checked })} /> <Term id="data-cleansing">Cleanse</Term>: drop duplicates and impossible readings</label>
@@ -185,7 +185,7 @@ function TrainPanel({ config, result, onChange, disabled }: PanelProps) {
           <label className="field"><Term id="learning-rate">Learning rate</Term>
             <select value={m.learningRate} onChange={(e) => set({ learningRate: Number(e.target.value) })}>{LEARNING_RATES.map((r) => <option key={r} value={r}>{r}</option>)}</select>
           </label>
-          <label className="field"><Term id="epoch">Epochs</Term>: <strong className="mono">{m.epochs}</strong>
+          <label className="field"><span><Term id="epoch">Epochs</Term>: <strong className="mono">{m.epochs}</strong></span>
             <input type="range" min={1} max={MAX_EPOCHS} value={m.epochs} onChange={(e) => set({ epochs: Number(e.target.value) })} />
           </label>
           <label className="field"><Term id="batch">Batch size</Term>
@@ -216,7 +216,7 @@ function EvaluatePanel({ config, result, onChange, disabled }: PanelProps) {
       <div className="lab-controls">
         <fieldset disabled={disabled}>
           <legend>Decision</legend>
-          <label className="field">Threshold: <strong className="mono">{config.threshold.toFixed(2)}</strong>
+          <label className="field"><span>Threshold: <strong className="mono">{config.threshold.toFixed(2)}</strong></span>
             <input type="range" min={0.05} max={0.95} step={0.05} value={config.threshold} onChange={(e) => onChange({ ...config, threshold: Number(e.target.value) })} />
           </label>
           <label className="field"><Term id="kpi">Report as the KPI</Term>

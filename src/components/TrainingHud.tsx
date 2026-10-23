@@ -21,7 +21,7 @@ export function TrainingHud({ run }: { run: RunState }) {
     <section className="training" aria-label="Training goal">
       <p className="eyebrow"><PixelIcon name="zap" /> Round {run.roundsCleared + run.roundsFailed + 1} · {run.roundsCleared}/{RUN_GOAL} cleared</p>
       <p className="hud-loss">
-        <span title={TERM_BY_ID.get('loss')?.definition}>Loss</span>
+        <span title={`The run's training goal, moved by every link: a correct answer lowers it, a miss raises it. Loss: ${TERM_BY_ID.get('loss')?.definition ?? ''}`}>Run loss</span>
         <strong className="mono">{r.loss.toFixed(2)}</strong>
         <span className="small">target ≤ {r.target.toFixed(2)}</span>
       </p>
