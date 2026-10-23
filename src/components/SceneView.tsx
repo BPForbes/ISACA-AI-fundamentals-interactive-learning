@@ -5,14 +5,12 @@ import { CHAPTERS } from '../data/terms';
 import type { Expedition, SceneRequest } from '../engine/director';
 import { levelOf, STAGE_NAMES, type TermProgress } from '../engine/progress';
 import { MODE_LABELS, type Choice, type Scene } from '../engine/scene';
-import type { RunState } from '../engine/run';
 import { RISK_STEPS, suggestedRisk } from '../engine/scoring';
 import type { NoteVerdict } from '../llm';
 import { ExpeditionSide } from './ExpeditionSide';
 
 type Props = {
   expedition: Expedition;
-  run: RunState | null;
   chain: Chain;
   req: SceneRequest | null;
   scene: Scene | null;
@@ -31,7 +29,7 @@ type Props = {
 };
 
 export function SceneView(props: Props) {
-  const { expedition, run, chain, req, scene, loading, notice, answered, verdict, progress } = props;
+  const { expedition, chain, req, scene, loading, notice, answered, verdict, progress } = props;
   const level = progress ? levelOf(progress) : 'Unknown';
   const [lo, hi] = suggestedRisk(level);
   const [risk, setRisk] = useState(1);
@@ -51,7 +49,7 @@ export function SceneView(props: Props) {
 
   return (
     <div className="scene-layout">
-      <ExpeditionSide expedition={expedition} run={run} chain={chain} onLeave={props.onLeave} />
+      <ExpeditionSide expedition={expedition} chain={chain} onLeave={props.onLeave} />
 
       <section className="scene card" aria-live="polite">
         {req && (

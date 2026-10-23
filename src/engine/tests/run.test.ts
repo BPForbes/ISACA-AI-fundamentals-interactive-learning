@@ -1,39 +1,40 @@
 import { describe, expect, it } from 'vitest';
 import { BRIEF_BY_ID } from '../../data/briefs';
-import { CHAIN_BY_ID } from '../../data/chains';
 import { TERM_BY_ID } from '../../data/terms';
-import { UPGRADES, UPGRADE_BY_ID, upgradeTerm } from '../../data/upgrades';
-import {
-  BASE_LEARNING_RATE, BASE_MISS_PENALTY, baseEffects, beginRound, buyUpgrade, canBuy, draftOffer, effectsOf, finishRound,
-  newRun, OFFER_SIZE, roundTarget, RUN_GOAL, START_CREDITS, stepsToTarget, trainingStep, type RunState,
-} from '../run';
+import { UPGRADES, UPGRADE_BY_ID, upgradeTerm, capabilitiesOf } from '../../data/upgrades';
+import { defaultLab, runLab } from '../lab';
+import { planProject, recordSubmission, reportProject, type ProjectState } from '../project';
+import { beginProject, buyUpgrade, canBuy, capabilities, draftOffer, finishProject, newRun, OFFER_SIZE, RUN_GOAL, START_CREDITS, type RunState } from '../run';
 
 const now = '2026-10-23T00:00:00Z';
 const fresh = (seed = 11) => newRun(now, `run-${seed}`, seed);
-const training = (run: RunState, upgrades: Record<string, number> = {}) =>
-  beginRound({ ...run, upgrades, offer: [] }, 'metrics-to-business');
-const answer = (run: RunState, pattern: string) =>
-  [...pattern].reduce((r, ch) => trainingStep(r, { correct: ch === '1', fixingMiss: false }), run);
+
+/** A completed project whose lab is sound and fully governed, every goal met (or none). */
+const soundProject = (run: RunState, allMet = true): ProjectState => {
+  let p = planProject({ id: 'p', round: run.roundsCleared + run.roundsFailed, seed: 5, capabilities: capabilities(run), priority: () => 1 });
+  const lab = { ...defaultLab(5), world: p.lab.world, deploy: { ...p.lab.deploy, monitoring: true, retrainOnAlert: true, backups: true, accessControl: true, oversight: true, auditTrail: true, fairnessTesting: true } };
+  for (let i = 0; i < p.goals.length; i += 1) {
+    p = recordSubmission(p, lab, allMet);
+    p = { ...p, index: Math.min(p.index + 1, p.goals.length - 1) };
+  }
+  return { ...p, status: 'complete' };
+};
 
 describe('upgrade catalogue', () => {
   it('names only terms in the bank, whose definitions the card quotes verbatim', () => {
     for (const u of UPGRADES) {
       expect(TERM_BY_ID.has(u.id), u.id).toBe(true);
       expect(upgradeTerm(u.id).definition).toBe(TERM_BY_ID.get(u.id)!.definition);
-      expect(u.inRun(1).length).toBeGreaterThan(10);
+      expect(u.inRun.length).toBeGreaterThan(10);
       expect(u.cost).toBeGreaterThan(0);
     }
     expect(new Set(UPGRADES.map((u) => u.id)).size).toBe(UPGRADES.length);
+    expect(new Set(UPGRADES.map((u) => u.gives)).size).toBe(UPGRADES.length);
   });
 
-  it('changes only the run’s numbers', () => {
-    const base = baseEffects();
-    expect(Object.keys(effectsOf({ 'learning-rate': 1 })).sort()).toEqual(Object.keys(base).sort());
-    expect(effectsOf({ 'learning-rate': 2 }).learningRate).toBeCloseTo(BASE_LEARNING_RATE + 0.08);
-    expect(effectsOf({ 'learning-rate': 9 }).learningRate).toBeCloseTo(BASE_LEARNING_RATE + 0.08);
-    expect(effectsOf({ regularization: 1 }).missPenalty).toBeCloseTo(BASE_MISS_PENALTY - 0.06);
-    expect(effectsOf({ depth: 2 }).hiddenLayers).toBe(3);
-    expect(effectsOf({ 'no-such-upgrade': 1 })).toEqual(base);
+  it('turns owned upgrades into lab capabilities', () => {
+    expect(capabilitiesOf({})).toEqual(new Set());
+    expect(capabilitiesOf({ depth: 1, optimizer: 1, 'no-such': 1 })).toEqual(new Set(['depth2', 'momentum']));
   });
 });
 
@@ -50,136 +51,86 @@ describe('a run', () => {
     expect(newRun(now, 'x', 12, 'pumps').briefId).toBe('pumps');
   });
 
-  it('sells one tier of an offered upgrade for credits, and nothing else', () => {
+  it('sells an offered upgrade for credits, once, and nothing else', () => {
     const run = { ...fresh(), credits: 5 };
     const [first] = run.offer;
     const bought = buyUpgrade(run, first);
     expect(bought.upgrades[first]).toBe(1);
     expect(bought.credits).toBe(5 - UPGRADE_BY_ID.get(first)!.cost);
     expect(bought.offer).not.toContain(first);
+    expect(capabilities(bought).has(UPGRADE_BY_ID.get(first)!.gives)).toBe(true);
     expect(buyUpgrade(bought, first)).toBe(bought);
     const notOffered = UPGRADES.map((u) => u.id).find((id) => !run.offer.includes(id))!;
     expect(canBuy(run, notOffered)).toBe(false);
     expect(canBuy({ ...run, credits: 0 }, first)).toBe(false);
-    expect(canBuy({ ...run, phase: 'training' }, first)).toBe(false);
+    expect(canBuy({ ...run, phase: 'project' }, first)).toBe(false);
   });
 
-  it('never offers an upgrade at its top tier, and redraws per round', () => {
-    const maxed = Object.fromEntries(UPGRADES.map((u) => [u.id, u.maxTier]));
-    expect(draftOffer({ seed: 3, roundsCleared: 0, roundsFailed: 0, upgrades: maxed })).toEqual([]);
-    const one = { ...maxed, depth: 1 };
-    expect(draftOffer({ seed: 3, roundsCleared: 0, roundsFailed: 0, upgrades: one })).toEqual(['depth']);
+  it('never offers an owned upgrade, and redraws per round', () => {
+    const all = Object.fromEntries(UPGRADES.map((u) => [u.id, 1]));
+    expect(draftOffer({ seed: 3, roundsCleared: 0, roundsFailed: 0, upgrades: all })).toEqual([]);
+    const butOne = { ...all, depth: 0 };
+    expect(draftOffer({ seed: 3, roundsCleared: 0, roundsFailed: 0, upgrades: butOne })).toEqual(['depth']);
     const a = draftOffer({ seed: 3, roundsCleared: 0, roundsFailed: 0, upgrades: {} });
     const b = draftOffer({ seed: 3, roundsCleared: 1, roundsFailed: 0, upgrades: {} });
     expect(a).not.toEqual(b);
   });
 
-  it('sets the target from the chain length and tightens it as rounds are cleared, down to a floor', () => {
-    expect(roundTarget(0, 5)).toBe(0.36);
-    expect(roundTarget(0, 3)).toBe(0.59);
-    expect(roundTarget(3, 5)).toBe(0.29);
-    expect(roundTarget(20, 5)).toBe(0.17);
-    const links = CHAIN_BY_ID.get('generalization')!.steps.length;
-    expect(beginRound({ ...fresh(), offer: [] }, 'generalization').round!.target).toBe(roundTarget(0, links));
-  });
-});
-
-describe('training steps', () => {
-  it('lower the loss on a correct answer and raise it on a miss, up to the cap', () => {
-    let run = training(fresh());
-    expect(run.round!.loss).toBe(1);
-    run = trainingStep(run, { correct: true, fixingMiss: false });
-    expect(run.round!.loss).toBeCloseTo(0.78, 3);
-    run = trainingStep(run, { correct: false, fixingMiss: false });
-    expect(run.round!.loss).toBeCloseTo(0.96, 3);
-    run = answer(run, '0000');
-    expect(run.round!.loss).toBe(1.5);
-    expect(run.round!.misses).toBe(5);
-    expect(run.round!.steps).toHaveLength(6);
-  });
-
-  it('clears a five-link chain with every answer right, and not with a late miss', () => {
-    const clean = answer(training(fresh()), '11111');
-    expect(clean.round!.loss).toBeLessThanOrEqual(clean.round!.target);
-    const lateMiss = answer(training(fresh()), '111101');
-    expect(lateMiss.round!.loss).toBeGreaterThan(lateMiss.round!.target);
-  });
-
-  it('applies the upgrades: regularization, normalization, pre-training, fine-tuning, momentum, augmentation', () => {
-    expect(answer(training(fresh(), { regularization: 1 }), '0').round!.loss).toBeCloseTo(1.12, 3);
-    expect(answer(training(fresh(), { 'normalization-network': 1 }), '000').round!.loss).toBe(1.1);
-    expect(training(fresh(), { 'pretrained-model': 1 }).round!.loss).toBe(0.8);
-    expect(answer(training(fresh(), { 'fine-tuning': 1 }), '1').round!.loss).toBeCloseTo(0.78 ** 2, 3);
-    expect(answer(training(fresh(), { 'fine-tuning': 1 }), '11').round!.loss).toBeCloseTo(0.78 ** 3, 2);
-    const momentum = answer(training(fresh(), { optimizer: 1 }), '111').round!.loss;
-    expect(momentum).toBeCloseTo(0.78 * 0.76 * 0.74, 2);
-    expect(answer(training(fresh(), { 'data-augmentation': 1 }), '00').round!.loss).toBeCloseTo(1 + 0.09 + 0.18, 3);
-  });
-
-  it('attention undoes a miss when the next answer on that link is right', () => {
-    const without = trainingStep(answer(training(fresh()), '10'), { correct: true, fixingMiss: true });
-    expect(without.round!.loss).toBeCloseTo(0.96 * 0.78, 3);
-    const run = trainingStep(answer(training(fresh(), { attention: 1 }), '10'), { correct: true, fixingMiss: true });
-    expect(run.round!.loss).toBeCloseTo(0.78 * 0.78, 3);
-    // Only when the correct answer is on the same link, right after the miss.
-    const other = trainingStep(answer(training(fresh(), { attention: 1 }), '10'), { correct: true, fixingMiss: false });
-    expect(other.round!.loss).toBeCloseTo(0.96 * 0.78, 3);
-  });
-
-  it('counts the correct answers still needed', () => {
-    const run = training(fresh());
-    expect(stepsToTarget(run)).toBe(5);
-    expect(stepsToTarget(answer(run, '111'))).toBe(2);
-    expect(stepsToTarget(answer(run, '11111'))).toBe(0);
-    expect(stepsToTarget(fresh())).toBeNull();
-  });
-
-  it('ignores steps outside a round', () => {
+  it('opens a project from the workshop only', () => {
     const run = fresh();
-    expect(trainingStep(run, { correct: true, fixingMiss: false })).toBe(run);
+    const project = soundProject(run);
+    expect(beginProject(run, project).phase).toBe('project');
+    expect(beginProject({ ...run, phase: 'over' }, project).phase).toBe('over');
   });
 });
 
-describe('finishing a round', () => {
-  const meters = { trust: 70, budget: 60, risk: 25 };
-
-  it('pays credits and funding for a cleared round, more for a clean one', () => {
-    const clean = finishRound(answer(training(fresh()), '11111'), meters);
-    expect(clean.phase).toBe('workshop');
-    expect(clean.roundsCleared).toBe(1);
-    expect(clean.credits).toBe(START_CREDITS + 3);
-    expect(clean.meters).toEqual({ trust: 75, budget: 70, risk: 25 });
-    expect(clean.lastReport).toMatchObject({ cleared: true, misses: 0, creditsEarned: 3, target: 0.36 });
-    expect(clean.offer).toHaveLength(OFFER_SIZE);
-    expect(clean.round).toBeNull();
-    const messy = finishRound(answer(training(fresh()), '0111111'), meters);
-    expect(messy.lastReport!.cleared).toBe(true);
-    expect(messy.credits).toBe(START_CREDITS + 2);
+describe('finishing a project', () => {
+  it('pays credits and funding for a cleared project, more when every goal was met', () => {
+    const run = beginProject(fresh(), soundProject(fresh()));
+    const report = reportProject(run.project!);
+    expect(report.cleared).toBe(true);
+    const done = finishProject(run, report);
+    expect(done.phase).toBe('workshop');
+    expect(done.roundsCleared).toBe(1);
+    expect(done.credits).toBe(START_CREDITS + 3);
+    expect(done.meters.budget).toBe(Math.min(100, fresh().meters.budget - report.budgetSpent + 15));
+    expect(done.lastReport).toMatchObject({ cleared: true, goalsMet: report.goalsTotal, creditsEarned: 3 });
+    expect(done.offer).toHaveLength(OFFER_SIZE);
+    expect(done.project).toBeNull();
+    const partly = finishProject(run, { ...report, goalsMet: Math.ceil(report.goalsTotal / 2) });
+    expect(partly.credits).toBe(START_CREDITS + 2);
   });
 
-  it('charges a failed or abandoned round and brings a governance review', () => {
-    const failed = finishRound(answer(training(fresh()), '01010'), meters);
+  it('charges a failed project and brings a governance review', () => {
+    const run = beginProject(fresh(), soundProject(fresh(), false));
+    const report = { ...reportProject(run.project!), cleared: false, goalsMet: 0 };
+    const failed = finishProject(run, report);
     expect(failed.roundsFailed).toBe(1);
     expect(failed.credits).toBe(START_CREDITS);
-    expect(failed.meters).toEqual({ trust: 60, budget: 45, risk: 40 });
-    const audited = finishRound(answer(training(fresh(), { 'audit-trail': 1 }), '01010'), meters);
-    expect(audited.meters.risk).toBe(33);
-    const abandoned = finishRound(answer(training(fresh()), '11111'), meters, { abandoned: true });
-    expect(abandoned.lastReport!.cleared).toBe(false);
+    expect(failed.meters.risk).toBe(fresh().meters.risk + report.riskGained + 10);
+    expect(failed.meters.trust).toBe(Math.max(0, fresh().meters.trust + report.trustGained - 10));
   });
 
-  it('ends the run when the budget is spent, risk hits the limit, or enough rounds are cleared', () => {
-    const defunded = finishRound(answer(training(fresh()), '00000'), { trust: 20, budget: 12, risk: 50 });
+  it('ends the run when the budget is spent, risk hits the limit, or enough projects are cleared', () => {
+    const run = beginProject(fresh(), soundProject(fresh()));
+    const report = reportProject(run.project!);
+    const defunded = finishProject({ ...run, meters: { trust: 20, budget: report.budgetSpent - 20, risk: 50 } }, { ...report, cleared: false, goalsMet: 0 });
     expect(defunded.phase).toBe('over');
     expect(defunded.ending).toBe('defunded');
     expect(defunded.offer).toEqual([]);
-    const halted = finishRound(answer(training(fresh()), '00000'), { trust: 20, budget: 50, risk: 90 });
+    const halted = finishProject({ ...run, meters: { trust: 20, budget: 90, risk: 95 } }, { ...report, cleared: false, goalsMet: 0, riskGained: 0 });
     expect(halted.ending).toBe('halted');
-    // The sixth round's target is 0.25, out of reach for a bare network.
-    const nearlyDone = { ...fresh(), roundsCleared: RUN_GOAL - 1 };
-    expect(finishRound(answer(training(nearlyDone), '11111'), meters).ending).toBeNull();
-    const shipped = finishRound(answer(training(nearlyDone, { 'learning-rate': 2 }), '11111'), meters);
+    const shipped = finishProject({ ...run, roundsCleared: RUN_GOAL - 1 }, report);
     expect(shipped.ending).toBe('shipped');
-    expect(finishRound(fresh(), meters)).toEqual(fresh());
+    expect(finishProject(fresh(), report)).toEqual(fresh());
+  });
+
+  it('judges a project by its deployment: a lab left ungoverned is not cleared', () => {
+    const run = fresh();
+    let p = planProject({ id: 'p', round: 0, seed: 5, capabilities: capabilities(run), priority: () => 1 });
+    const bare = { ...defaultLab(5), world: p.lab.world };
+    p = recordSubmission(p, bare, false);
+    expect(runLab(bare).deploy.kgiMet).toBe(false);
+    expect(reportProject({ ...p, status: 'complete' }).cleared).toBe(false);
   });
 });

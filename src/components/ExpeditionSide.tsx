@@ -3,10 +3,8 @@
 import type { Chain } from '../data/chains';
 import { TERM_BY_ID } from '../data/terms';
 import type { Expedition } from '../engine/director';
-import type { RunState } from '../engine/run';
-import { TrainingHud } from './TrainingHud';
 
-type Props = { expedition: Expedition; run: RunState | null; chain: Chain; onLeave: () => void };
+type Props = { expedition: Expedition; chain: Chain; onLeave: () => void };
 
 function Meter({ label, value, invert }: { label: string; value: number; invert?: boolean }) {
   const good = invert ? 100 - value : value;
@@ -20,11 +18,9 @@ function Meter({ label, value, invert }: { label: string; value: number; invert?
   );
 }
 
-export function ExpeditionSide({ expedition, run, chain, onLeave }: Props) {
-  const leaving = run?.round && expedition.status === 'active';
+export function ExpeditionSide({ expedition, chain, onLeave }: Props) {
   return (
     <aside className="scene-side card">
-      {run?.round && <TrainingHud run={run} />}
       <h2>{chain.title}</h2>
       <p className="path">{chain.path}</p>
       <ol className="links progress-links">
@@ -41,9 +37,7 @@ export function ExpeditionSide({ expedition, run, chain, onLeave }: Props) {
       <Meter label="Budget" value={expedition.meters.budget} />
       <Meter label="Risk exposure" value={expedition.meters.risk} invert />
       <p className="cue"><strong>Exam cue:</strong> {chain.cue}</p>
-      <button className="ghost" onClick={onLeave} title={leaving ? 'Leaving before the chain completes fails the round' : undefined}>
-        {leaving ? 'Abandon the round' : 'Return to the workshop'}
-      </button>
+      <button className="ghost" onClick={onLeave}>Return to the map</button>
     </aside>
   );
 }

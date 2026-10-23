@@ -106,53 +106,51 @@ flowchart LR
 > second model call. It borrows the generator-versus-discriminator structure, not the training. Calculation scenes
 > always use the template so the arithmetic is exact.
 
-## The lab: learning by doing
+## The lab: the whole course, learned by doing
 
-Sixteen of the chain links are not scenes but **lab challenges** (`src/data/challenges.ts`): the link's concept is
-something the learner has to do, in a small but real machine-learning lab (`src/engine/lab/`).
+The run is a lab. Each round is a **project** that walks the machine-learning lifecycle once, in five stages, and
+every stage poses goals drawn from the term bank: ninety-one of them, across all five chapters
+(`src/data/goals.ts`). A goal is a broken lab and a target the simulation judges; meeting it is the mastery
+evidence, missing it keeps the goal in play on a fresh seed, and a hint opens after two misses. Nothing is a quiz.
 
-- **The lab is real.** A fictional population of cases with two features, a label and a minority group; a sample
-  drawn by convenience, at random or stratified, corrupted with duplicates, impossible readings or wrong labels,
-  and cleaned, checked or augmented; a small network (linear, or one or two hidden layers) trained by mini-batch
-  gradient descent with a learning rate, epochs, batch size and L2 regularization; a decision threshold against a
-  live confusion matrix with precision, recall, specificity, accuracy and per-group accuracy; a drifted test set.
-  Every control change re-runs the whole pipeline (about 15 ms), so the learner sees what each concept does.
-- **A challenge is a broken lab and a goal.** Convenience sampling has left the minority out; the export is full of
-  readings no instrument produced; the model is a straight line through a pattern that bends; a big network has
-  memorised 24 rows; the report measured loss on the training rows; the threshold misses most real cases; the
-  dashboard shows accuracy when the objective is about misses; this quarter's cases have drifted. The goal is a
-  number the simulation judges (validation loss, false negatives, recall, a group accuracy gap, compute). Meeting it
-  is the mastery evidence; missing it keeps the link in play on a fresh seed, and a hint opens after two misses.
-- **Fair by construction.** Every challenge carries a solution, and the tests prove on eight seeds that the setup
-  fails its goal and the solution meets it. Briefs are hypothetical and never quote a definition; the debrief
-  quotes the term bank.
+| Stage | What the lab does there | Goals (examples) |
+| --- | --- | --- |
+| **Define** | Capability, learning paradigm and scope of the problem; a problem defined wrong trains nothing, a general scope costs ten times the compute | problem definition, ANI, discriminative AI, supervised learning, classification |
+| **Data** | A fictional population with a minority group; a sample drawn by convenience, at random or stratified; duplicates, impossible readings and wrong labels; cleansing, a label check against the source, augmentation | convenience sampling, representativeness, stratified sampling, sampling bias, cleansing, outliers, training data, data quality, GIGO, poisoning, labelling bias, fairness testing |
+| **Train** | A linear, one- or two-hidden-layer network trained by mini-batch gradient descent, with learning rate, epochs, batch size, L2, momentum, feature standardization and an interaction feature; decision regions and loss curves | parameter updates, epochs, loss, learning rate, normalization, parameters, under- and overfitting, depth, feature engineering, generalization, regularization, model assessment, hyperparameters, batches, the optimizer, deep learning, feasibility, compression |
+| **Decide** | How cases are decided: rules applied in order by an inference engine, facts imported from a knowledge base, a rule induced from the data, the model, a hybrid, and a reviewer with limited capacity who, shown the model's score, follows it; a threshold against the confusion matrix | rule-based, knowledge base, inference engine, deductive and inductive reasoning, expert systems, symbolic and statistical AI, hybrid AI, symbiotic AI, HITL, decision support, autonomous decisions, automation bias, explainability, interpretability, the confusion matrix and its cells, precision, recall, specificity, accuracy, KPIs |
+| **Deploy** | Six simulated months: the world drifts, monitoring raises a leading signal, retraining answers it, incidents follow missing controls (a bias complaint, an intrusion, an outage, a regulator's inquiry, a quiet slide), each with a fine; the value of the decisions against the brief's business goal, the cost of ownership, the return, the risk appetite | monitoring, drift, leading and lagging indicators, KGIs, oversight, audit trail, accountability, the EU AI Act, compliance risk, least privilege, confidentiality, minimization, privacy, GDPR, backups, data loss, resilience, availability, the CIA triad, integrity, reputational and operational risk, risk appetite, governance, ROI, TCO, the balanced scorecard |
 
-The lab covers the Chapter 3 and 4 anchors (sampling, cleansing, training data, data quality, GIGO, poisoning,
-fairness testing, parameter updates, parameters, generalization, model assessment, technical feasibility, the
-confusion matrix, recall, KPIs, model drift). Chapter 1, 2 and 5 anchors are still story scenes; the planned
-mechanics for them are a rules workbench (expert systems, inference, explainability) and a governance board (risk,
-oversight, controls).
+- **The lab carries forward.** The data you build is what you train; the model you train is what the decide stage
+  routes; what you decide is what six months of deployment judge. A goal's setup resets only the corruption an
+  earlier goal put in.
+- **The project is cleared when the deployed model meets its business goal** over the six months. Goals are chosen
+  for what you are weakest on (the rematch queue first, then the lowest level); the deployed world drifts a little
+  more each project and the target rises.
+- **Fair by construction.** Every goal carries a solution, and `src/data/tests/goals.test.ts` proves on five seeds
+  that the setup fails its goal and the solution meets it. Briefs are hypothetical ("Suppose…") and never quote a
+  definition; the debrief quotes the term bank. A goal that needs a capability the run has not bought is not posed.
 
-## The run: a roguelike around the expeditions
+The story expeditions (one integration chain through the chapters, scenes written by the model) remain as practice
+outside the run.
 
-Studying is framed as a **run**: one attempt to train a model for a fictional brief ("sort 40,000 unlabelled survey
-photographs", "predict which passes will ice over"). The model gets a codename and starts as a bare network.
+## The run: a roguelike of projects
 
-- **A round is one expedition.** Every decision in it is a training step: a correct answer removes a share of the
-  model's loss, a miss adds to it. The round's goal is a loss at or under the target when the chain completes; the
-  target tightens with every round cleared. The scene panel shows the loss, its curve, and how many correct answers
-  in a row would reach the target.
-- **The workshop between rounds** offers three upgrades for the credits a cleared round earns. Each upgrade is a
-  Chapter 4 or 5 term (learning rate, depth, regularization, normalization, pre-trained model, fine-tuning, optimizer,
-  attention, data augmentation, human oversight, model compression, audit trail): its card quotes the exam definition
-  and, separately, what it does in the run. Depth is a trade-off: a deeper network learns faster and overfits harder.
-  The network diagram grows with what you buy.
-- **The team meters carry over.** Trust, budget and risk persist from round to round. A cleared round renews funding;
-  a failed or abandoned one brings a governance review. The run ends when the budget is spent or risk reaches 100,
-  and the model **ships** after six cleared rounds.
+Studying is framed as a **run**: one attempt to build a model for a fictional brief ("sort 40,000 unlabelled survey
+photographs", "predict which passes will ice over"). The model gets a codename and starts with the basic lab.
+
+- **A round is one project** in the lab, cleared when the deployed model meets the business goal.
+- **The workshop between projects** offers three upgrades for the credits a cleared project earns. Each upgrade is a
+  term from the bank (depth, width, the optimizer, feature engineering, data augmentation, human oversight, model
+  compression, monitoring, audit trail, fairness testing, backups): its card quotes the exam definition and,
+  separately, the capability it gives the lab (a second hidden layer, momentum, the interaction feature, sixty
+  reviewers in a hundred, a control that costs nothing). The lab diagram grows with what you buy.
+- **The team meters carry over.** Trust, budget and risk persist. A cleared project renews funding; a failed one
+  brings a governance review; the deployment's incidents and costs land on the meters either way. The run ends when
+  the budget is spent or risk reaches 100, and the model **ships** after six cleared projects.
 - **What you learned is kept.** Mastery, the rematch queue, the progress models and the mastery matrix belong to you,
-  not to the run; a new run starts with a bare network and the same knowledge. Upgrades change only the run's
-  numbers: never which concept is asked, whether an answer counts, mastery, or when the story moves on.
+  not to the run. Upgrades change only what the lab can do: never which concept is asked, whether a goal counts,
+  mastery, or when the project moves on.
 
 The icons are [pixelarticons](https://github.com/halfmage/pixelarticons) (MIT); see
 [`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md).
@@ -211,8 +209,8 @@ npm run build    # typecheck and production build
 
 | Area | Location |
 | --- | --- |
-| Term bank, chains, distinctions, story settings, scene situations, run briefs, the upgrade catalogue, lab challenges | [`src/data/`](src/data) |
-| Mastery, scoring, director, templates, discriminator, LSTM and attention trackers, relation table, packed matrix, the run (`run.ts`), the lab simulation (`lab/`) | [`src/engine/`](src/engine) |
+| Term bank, chains, distinctions, story settings, scene situations, run briefs, the upgrade catalogue, lab goals | [`src/data/`](src/data) |
+| Mastery, scoring, director, templates, discriminator, LSTM and attention trackers, relation table, packed matrix, the run (`run.ts`), projects (`project.ts`), the lab simulation (`lab/`: data, model, rules, deployment) | [`src/engine/`](src/engine) |
 | Hosted, in-browser, Ollama and Workers AI backends; the generate–discriminate loop | [`src/llm/`](src/llm) |
 | Session state, dirty tracking, study-context export | [`src/session/`](src/session) |
 | Cloud client and the Cloudflare Worker + D1 migration | [`src/sync/`](src/sync), [`worker/`](worker) |

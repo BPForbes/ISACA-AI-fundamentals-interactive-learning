@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { buildDataset, defaultData, MINORITY_SHARE, POPULATION, TEST_SIZE, VALIDATION_SIZE } from '../dataset';
 import { defaultLab, diagnose, runLab } from '..';
+import { FINES, monthlyCost } from '../deploy';
+import { decide, decisionStats, induceRule, inference, KNOWLEDGE_BASE, ruleStats, type Rule } from '../rules';
 import { confusion, groupAccuracy, type Scored } from '../metrics';
-import { defaultModel, paramCount, trainModel, type TrainResult } from '../model';
+import { defaultFeatures, defaultModel, paramCount, trainModel, type TrainResult } from '../model';
 
 describe('lab dataset', () => {
   it('is deterministic and holds its sets apart', () => {
@@ -39,7 +41,7 @@ describe('lab dataset', () => {
     expect(cleaned.corrected).toBeGreaterThan(20);
     expect(cleaned.train.every((p) => Math.abs(p.x) <= 1.5 && Math.abs(p.y) <= 1.5)).toBe(true);
     const augmented = buildDataset({ ...defaultData(6), augment: true });
-    expect(augmented.train).toHaveLength(240);
+    expect(augmented.train).toHaveLength(360);
   });
 
   it('draws the test set from the drifted world, and the sample too when retraining on recent cases', () => {
@@ -56,12 +58,12 @@ describe('lab model', () => {
     expect(paramCount({ ...defaultModel(1), depth: 1, hidden: 6 })).toBe(25);
     expect(paramCount({ ...defaultModel(1), depth: 2, hidden: 6 })).toBe(67);
     const d = buildDataset(defaultData(8));
-    const r = trainModel(defaultModel(8), d.train, d.validation);
+    const r = trainModel(defaultModel(8), defaultFeatures(), d.train, d.validation);
     expect(r.curve).toHaveLength(30);
     expect(r.curve[29].train).toBeLessThan(r.curve[0].train);
     expect(r.curve[29].val).toBeLessThan(0.45);
     expect(r.diverged).toBe(false);
-    expect(trainModel(defaultModel(8), d.train, d.validation).curve).toEqual(r.curve);
+    expect(trainModel(defaultModel(8), defaultFeatures(), d.train, d.validation).curve).toEqual(r.curve);
     expect(r.predict(1, 1)).toBeGreaterThan(r.predict(-1, -1));
   });
 
@@ -115,5 +117,102 @@ describe('a lab run', () => {
     expect(r.compute).toBe(25 * 30);
     expect(r.metrics.tp + r.metrics.fn + r.metrics.fp + r.metrics.tn).toBe(VALIDATION_SIZE);
     expect(runLab({ ...defaultLab(9), assessOn: 'train' }).reportedLoss).toBeCloseTo(r.trainLoss);
+  });
+});
+
+describe('features and the optimizer', () => {
+  it('standardizing rescues badly scaled inputs, the interaction lets a line bend, momentum converges faster', () => {
+    const scaled = { ...defaultLab(3), features: { scale: 40, interaction: false, normalize: false } };
+    const standardized = { ...scaled, features: { ...scaled.features, normalize: true } };
+    expect(runLab(scaled).valLoss).toBeGreaterThan(runLab(standardized).valLoss);
+    const bent = { ...defaultLab(3), data: { ...defaultLab(3).data, curvature: 6 }, model: { ...defaultLab(3).model, depth: 0 as const, epochs: 60 } };
+    const withInteraction = { ...bent, features: { ...bent.features, interaction: true } };
+    expect(runLab(withInteraction).valLoss).toBeLessThan(runLab(bent).valLoss - 0.1);
+    expect(runLab(withInteraction).training.paramCount).toBe(4);
+    const slow = { ...defaultLab(3), model: { ...defaultLab(3).model, learningRate: 0.03, epochs: 20 } };
+    const momentum = { ...slow, model: { ...slow.model, momentum: 0.9 } };
+    expect(runLab(momentum).valLoss).toBeLessThan(runLab(slow).valLoss);
+  });
+});
+
+describe('the rules workbench', () => {
+  const d = buildDataset(defaultData(4));
+  const kb: Rule[] = KNOWLEDGE_BASE.map((k) => k.rule);
+
+  it('applies rules in order, first match wins, with group conditions', () => {
+    const p = { x: 0.9, y: -0.9, label: 1 as const, group: 0 as const };
+    expect(inference([kb[1], kb[0]], p)).toEqual({ outcome: 0, rule: 0 });
+    expect(inference([kb[0], kb[1]], p)).toEqual({ outcome: 1, rule: 0 });
+    expect(inference([kb[2]], { ...p, group: 1, y: 0.5 })).toEqual({ outcome: 1, rule: 0 });
+    expect(inference([kb[2]], { ...p, group: 0, y: 0.5 })).toBeNull();
+    expect(inference([], p)).toBeNull();
+    const stats = ruleStats(kb, d.validation);
+    expect(stats).toHaveLength(kb.length);
+    expect(stats.reduce((n, s) => n + s.covered, 0)).toBeLessThanOrEqual(d.validation.length);
+  });
+
+  it('induces a precise rule from the sample, marked as induced', () => {
+    const rule = induceRule(d.train)!;
+    expect(rule.induced).toBe(true);
+    const [stat] = ruleStats([rule], d.train);
+    expect(stat.covered).toBeGreaterThanOrEqual(d.train.length * 0.15);
+    expect(stat.correct / stat.covered).toBeGreaterThan(0.8);
+    expect(induceRule([])).toBeNull();
+  });
+
+  it('routes cases by approach, and a reviewer shown the score follows it', () => {
+    const r = runLab(defaultLab(4));
+    const base = { approach: 'ml' as const, rules: kb, review: { capacity: 0, band: 0.2, showScore: false }, threshold: 0.5, seed: 4 };
+    expect(decide(base, r.validation).every((x) => x.source === 'model')).toBe(true);
+    const rulesOnly = decide({ ...base, approach: 'rules', rules: [] }, r.validation);
+    expect(rulesOnly.every((x) => x.source === 'default' && x.predicted === 0)).toBe(true);
+    const hybrid = decisionStats(decide({ ...base, approach: 'hybrid' }, r.validation), r.validation);
+    expect(hybrid.bySource.rule).toBeGreaterThan(0);
+    expect(hybrid.bySource.model).toBeGreaterThan(0);
+    expect(hybrid.explained).toBeCloseTo(hybrid.bySource.rule / 100);
+    const blind = decisionStats(decide({ ...base, review: { capacity: 30, band: 0.8, showScore: false } }, r.validation), r.validation);
+    const biased = decisionStats(decide({ ...base, review: { capacity: 30, band: 0.8, showScore: true } }, r.validation), r.validation);
+    expect(blind.bySource.human).toBe(30);
+    expect(blind.reviewerAccuracy).toBeGreaterThan(biased.reviewerAccuracy);
+    expect(blind.accuracy).toBeGreaterThanOrEqual(biased.accuracy);
+  });
+});
+
+describe('deployment', () => {
+  const bare = defaultLab(5);
+  const governed = { ...bare, deploy: { ...bare.deploy, monitoring: true, retrainOnAlert: true, backups: true, accessControl: true, oversight: true, auditTrail: true, fairnessTesting: true } };
+
+  it('runs six months, drifts, and only monitoring sees it', () => {
+    const r = runLab(bare);
+    expect(r.deploy.months).toHaveLength(6);
+    expect(r.deploy.alertMonth).toBeNull();
+    expect(r.deploy.months[5].accuracy).toBeLessThan(r.deploy.months[0].accuracy);
+    const g = runLab(governed);
+    expect(g.deploy.alertMonth).not.toBeNull();
+    expect(g.deploy.months.some((m) => m.retrained)).toBe(true);
+    expect(g.deploy.months[5].accuracy).toBeGreaterThan(r.deploy.months[5].accuracy);
+  });
+
+  it('turns missing controls into incidents that cost value, and sums the cost of ownership', () => {
+    const r = runLab(bare);
+    const kinds = r.deploy.incidents.map((i) => i.kind);
+    expect(kinds).toContain('confidentiality');
+    expect(kinds).toContain('availability');
+    expect(kinds).toContain('compliance');
+    expect(r.deploy.months[3].value).toBeLessThanOrEqual(0);
+    expect(r.deploy.value).toBeLessThan(runLab(governed).deploy.value);
+    expect(runLab(governed).deploy.incidents).toEqual([]);
+    expect(r.deploy.cost).toBe(monthlyCost(bare.deploy, r.training.paramCount) * 6);
+    expect(FINES.compliance).toBeGreaterThan(FINES.operational);
+    const minimized = runLab({ ...bare, deploy: { ...bare.deploy, minimization: true } });
+    expect(minimized.deploy.incidents.find((i) => i.kind === 'confidentiality')!.risk).toBeLessThan(r.deploy.incidents.find((i) => i.kind === 'confidentiality')!.risk);
+  });
+
+  it('judges the business goal and the appetite', () => {
+    expect(runLab(bare).deploy.kgiMet).toBe(false);
+    expect(runLab(governed).deploy.kgiMet).toBe(true);
+    expect(runLab(governed).deploy.withinAppetite).toBe(true);
+    expect(runLab({ ...bare, deploy: { ...bare.deploy, riskAppetite: 'low' } }).deploy.withinAppetite).toBe(false);
+    expect(runLab({ ...bare, problem: { ...bare.problem, scope: 'general' } }).monthlyCompute).toBe(runLab(bare).monthlyCompute * 10);
   });
 });

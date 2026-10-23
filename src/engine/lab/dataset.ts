@@ -71,13 +71,18 @@ const gaussian = (rng: () => number) => {
   return Math.sqrt(-2 * Math.log(u)) * Math.cos(2 * Math.PI * v);
 };
 
-const draw = (rng: () => number, n: number, drift: number, curvature: number): Point[] =>
+/**
+ * Cases from the world as it is at `drift`: the readings have moved along x by that
+ * much while the rule behind the labels has not, so both what the model sees and
+ * what it means have changed. The deployment draws each month's cases this way.
+ */
+export const drawCases = (rng: () => number, n: number, drift: number, curvature: number): Point[] =>
   Array.from({ length: n }, () => {
     const group: 0 | 1 = rng() < MINORITY_SHARE ? 1 : 0;
     const x = group === 1 ? -1 + rng() * 0.9 : -0.6 + rng() * 1.6;
     const y = -1 + rng() * 2;
-    const label: 0 | 1 = trueScore(x, y, group, drift, curvature) + gaussian(rng) * LABEL_NOISE_SD > 0 ? 1 : 0;
-    return { x, y, label, group };
+    const label: 0 | 1 = trueScore(x, y, group, 0, curvature) + gaussian(rng) * LABEL_NOISE_SD > 0 ? 1 : 0;
+    return { x: x + drift, y, label, group };
   });
 
 const shuffle = <T,>(items: T[], rng: () => number): T[] => {
@@ -111,8 +116,8 @@ const isFarOff = (p: Point) => Math.abs(p.x) > 1.5 || Math.abs(p.y) > 1.5;
 
 export const buildDataset = (cfg: DataConfig): Dataset => {
   const rng = seededRng(cfg.seed);
-  const population = draw(rng, POPULATION, 0, cfg.curvature);
-  const world = cfg.recent ? draw(rng, POPULATION, cfg.drift, cfg.curvature) : population;
+  const population = drawCases(rng, POPULATION, 0, cfg.curvature);
+  const world = cfg.recent ? drawCases(rng, POPULATION, cfg.drift, cfg.curvature) : population;
   let sample = sampleFrom(world, cfg, rng);
   const sampled = new Set(sample);
 
@@ -149,13 +154,14 @@ export const buildDataset = (cfg: DataConfig): Dataset => {
     });
   }
   if (cfg.augment) {
-    train = [...train, ...train.map((p) => ({ ...p, x: p.x + gaussian(rng) * 0.05, y: p.y + gaussian(rng) * 0.05 }))];
+    const copies = [1, 2].flatMap(() => train.map((p) => ({ ...p, x: p.x + gaussian(rng) * 0.08, y: p.y + gaussian(rng) * 0.08 })));
+    train = [...train, ...copies];
   }
 
   // Held-out sets are drawn from the world as it is, never from the sample.
   const rest = shuffle(population.filter((p) => !sampled.has(p)), rng);
   const validation = rest.slice(0, VALIDATION_SIZE);
-  const test = draw(rng, TEST_SIZE, cfg.drift, cfg.curvature);
+  const test = drawCases(rng, TEST_SIZE, cfg.drift, cfg.curvature);
   const share = (points: Point[]) => (points.length ? points.filter((p) => p.group === 1).length / points.length : 0);
   const strip = (p: Row): Point => ({ x: p.x, y: p.y, label: p.label, group: p.group });
   return {

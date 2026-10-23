@@ -32,19 +32,24 @@ plus a Cloudflare Worker (`worker/`) that stores progress in D1 and can generate
   expedition) but never decides move-on: that stays with `decideAdvance`. The relation table comes from the guide's
   chains, distinctions and sections, never from model output.
 - Calculation scenes stay on the offline engine so arithmetic is exact.
-- Lab challenges (`src/data/challenges.ts`, `src/engine/lab/`) replace the scene for an anchor the lab can teach by
-  doing. The lab is a real, seeded simulation (sampling, corruption and cleaning; a small network trained by gradient
-  descent; a threshold and confusion matrix); it decides nothing about mastery. A challenge is a broken setup, a goal
-  the simulation judges, terms for the debrief (the anchor first) and a solution; `src/data/tests/challenges.test.ts`
-  must keep proving on eight seeds that the setup fails the goal and the solution meets it. Briefs are hypothetical
-  ("Suppose…"), fictional, and never hand over a definition; definitions come from `TERM_BY_ID`. A submission goes
-  through `answerChallenge`, which records it exactly as a scene answer (`mode: 'lab'`), so the teaching rules above
-  apply unchanged: a miss keeps the anchor in play (re-seeded) and the move-on gate decides.
-- The run (`src/engine/run.ts`, `src/data/upgrades.ts`, `src/data/briefs.ts`) is a game layer that only reads each
-  answer's outcome. An upgrade changes the run's numbers (loss, what a scene costs the meters, credits) and nothing
-  else: never which concept is asked, whether an answer counts, mastery, the matrix, the move-on gate or a scene's
-  text. An upgrade is named after a term in the bank and its card quotes that term's definition from `TERM_BY_ID`,
-  never a copy; its "in this run" line is game text, not exam wording. Briefs and their organisations are fictional.
+- The lab (`src/engine/lab/`) is the game. It is a real, seeded simulation of the lifecycle: define the problem;
+  sample, corrupt and clean the data; train a small network by gradient descent; decide cases by rules, the model,
+  a hybrid and a capacity-limited reviewer; deploy for six months with drift, controls, incidents, value and cost. It
+  decides nothing about mastery. A goal (`src/data/goals.ts`) is a broken setup patched onto the project's lab, a
+  target the simulation judges, terms for the debrief (the anchor first) and a solution; `src/data/tests/goals.test.ts`
+  must keep proving on five seeds that every setup fails its goal and every solution meets it. Briefs are hypothetical
+  ("Suppose…"), fictional, and never hand over a definition; definitions come from `TERM_BY_ID`. A goal that needs a
+  capability (`needs`) is posed only once the run owns the upgrade that gives it. A submission goes through
+  `submitGoal`, which records it exactly as a scene answer (`mode: 'lab'`), so the teaching rules apply unchanged: a
+  miss keeps the goal in play (re-seeded) and the move-on gate decides.
+- A project (`src/engine/project.ts`) is one round: goals per stage chosen by the store's priority (rematch queue,
+  then level), the lab carried from goal to goal, and the round cleared by the deployed model's business goal. The
+  story expeditions are practice outside the run and must not touch it.
+- The run (`src/engine/run.ts`, `src/data/upgrades.ts`, `src/data/briefs.ts`) only reads each project's report. An
+  upgrade gives the lab a capability (a control unlocked, a cost reduced) and nothing else: never which concept is
+  asked, whether a goal counts, mastery, the matrix, the move-on gate or what a goal judges. An upgrade is named after
+  a term in the bank and its card quotes that term's definition from `TERM_BY_ID`, never a copy; its "in the lab"
+  line is game text, not exam wording. Briefs and their organisations are fictional.
 - Third-party assets must be MIT (or more permissive) and listed in `THIRD_PARTY_LICENSES.md` with their notice.
   Icons come from `pixelarticons` through `src/components/PixelIcon.tsx`; add an icon there, not as a loose file.
 

@@ -1,11 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { buildSceneRequest, startExpedition } from '../../engine/director';
 import { generateOfflineScene } from '../../engine/offline';
-import { newRun, RUN_GOAL, START_CREDITS } from '../../engine/run';
-import { answerChallenge } from '../store';
+import { defaultLab, runLab, type LabConfig } from '../../engine/lab';
+import { labForCurrent } from '../../engine/project';
 import {
-  answerScene, applyRemote, beginExpedition, buildSavePayload, buildStudyContext, buyRunUpgrade, CAMP_INTERVAL, concludeRound,
-  deferCurrentStep, ensureRun, hasUnsavedChanges, markSaved, newSession, recordNote, startNewRun, type SessionState,
+  answerScene, applyRemote, beginExpedition, buildSavePayload, buildStudyContext, buyRunUpgrade, CAMP_INTERVAL, currentProjectGoal,
+  deferCurrentStep, deferProjectGoal, ensureRun, finishProjectRound, hasUnsavedChanges, markSaved, newSession, recordNote, startNewRun,
+  startProject, submitGoal, type SessionState,
 } from '../store';
 
 let clock = 0;
@@ -142,7 +143,8 @@ describe('session store', () => {
 });
 
 describe('the run inside a session', () => {
-  const withRun = () => ensureRun(fresh(), tick(), 'run-1', 5);
+  const withRun = () => ensureRun(newSession(tick(), 's1'), tick(), 'run-1', 5);
+  const submit = (state: SessionState, lab: LabConfig, id: string) => submitGoal(state, { lab, result: runLab(lab), now: tick(), eventId: id, model: null });
 
   it('starts one run, keeps it across sessions, and replaces only a finished one', () => {
     const s = withRun();
@@ -152,75 +154,57 @@ describe('the run inside a session', () => {
     const over = { ...s, run: { ...s.run!, phase: 'over' as const } };
     expect(ensureRun(over, tick(), 'run-3', 7).run?.id).toBe('run-3');
     expect(startNewRun(s, tick(), 'run-4', 8).run?.id).toBe('run-4');
-    expect(fresh().run).toBeNull();
+    expect(newSession(tick(), 'plain').run).toBeNull();
   });
 
-  it('treats an expedition as a training round and never lets the run touch mastery', () => {
-    const plain = fresh();
-    const s = withRun();
-    const expedition = (state: SessionState) => beginExpedition(state, startExpedition('indicators', { lastKind: null, now: tick(), rng, meters: state.run?.meters }));
-    let a = expedition(plain);
-    let b = expedition(s);
-    expect(b.run?.phase).toBe('training');
-    expect(b.run?.round?.chainId).toBe('indicators');
-    for (const correct of [true, false, true, true]) {
-      a = play(a, correct).state;
-      b = play(b, correct).state;
-    }
-    expect(b.run?.round?.steps.map((x) => x.correct)).toEqual([true, false, true, true]);
-    expect(b.run?.round?.loss).toBeLessThan(1);
-    // Same answers, same learning: progress, remediation and history do not depend on the run.
-    const learned = (state: SessionState) => Object.values(state.progress).map(({ lastSeen, updatedAt, ...rest }) => rest);
-    expect(learned(b)).toEqual(learned(a));
-    expect(b.remediation).toEqual(a.remediation);
-    expect(b.history.map((e) => [e.concept, e.correct])).toEqual(a.history.map((e) => [e.concept, e.correct]));
-    expect(b.expedition!.stepIndex).toBe(a.expedition!.stepIndex);
+  it('plans a project from the workshop and records each goal like an answer', () => {
+    const s = startProject(withRun(), 'p1', 7);
+    expect(s.run?.phase).toBe('project');
+    expect(startProject(s, 'p2', 8).run?.project?.id).toBe('p1');
+    const cur = currentProjectGoal(s)!;
+    const lab = labForCurrent(s.run!.project!)!;
+    const miss = submit(s, lab, 'g1');
+    expect(miss.met).toBe(false);
+    expect(miss.gate.advance).toBe(false);
+    expect(miss.state.events[0]).toMatchObject({ id: 'g1', mode: 'lab', chainId: 'project', settingId: s.run!.briefId, correct: false, risk: 1 });
+    expect(miss.state.history[0]).toMatchObject({ concept: cur.goal.anchor, correct: false, mode: 'lab' });
+    expect(miss.state.progress[cur.goal.anchor].attempts).toBe(1);
+    expect(miss.state.remediation).toContain(cur.goal.anchor);
+    expect(miss.state.run!.project!.index).toBe(0);
+    expect(miss.state.run!.project!.goals[0]).toMatchObject({ attempts: 1, misses: 1, outcome: 'missed' });
+    const fixed = cur.goal.solution(lab);
+    const hit = submit(miss.state, fixed, 'g2');
+    expect(hit.met).toBe(true);
+    expect(hit.points).toBeGreaterThan(0);
+    // Right after a miss, one more from a new setup confirms the fix.
+    expect(hit.gate.advance).toBe(false);
+    expect(hit.state.run!.project!.index).toBe(0);
+    const again = submit(hit.state, fixed, 'g3');
+    expect(again.gate.advance).toBe(true);
+    expect(again.state.run!.project!.index).toBe(1);
+    expect(again.state.run!.project!.lab).toBe(fixed);
+    expect(again.state.stats.modesUsed).toEqual(['lab']);
   });
 
-  it('closes the round when the learner leaves, failed if the chain was not completed', () => {
-    let s = beginExpedition(withRun(), startExpedition('indicators', { lastKind: null, now: tick(), rng }));
-    s = play(s, true).state;
-    const left = concludeRound(s);
-    expect(left.expedition).toBeNull();
-    expect(left.run?.phase).toBe('workshop');
-    expect(left.run?.roundsFailed).toBe(1);
-    expect(left.run?.lastReport?.cleared).toBe(false);
-    expect(concludeRound(left)).toBe(left);
+  it('defers a goal into the rematch queue and closes the project into the run', () => {
+    let s = startProject(withRun(), 'p1', 7);
+    const anchor = currentProjectGoal(s)!.goal.anchor;
+    s = deferProjectGoal(s);
+    expect(s.remediation).toContain(anchor);
+    expect(s.run!.project!.index).toBe(1);
+    const { state, report } = finishProjectRound(s);
+    expect(report).not.toBeNull();
+    expect(state.run!.project).toBeNull();
+    expect(state.run!.roundsCleared + state.run!.roundsFailed).toBe(1);
+    expect(['workshop', 'over']).toContain(state.run!.phase);
+    expect(finishProjectRound(state).report).toBeNull();
   });
 
-  it('clears a round when the chain completes under the target, and carries the meters on', () => {
-    let s = beginExpedition(withRun(), startExpedition('indicators', { lastKind: null, now: tick(), rng, meters: withRun().run!.meters }));
-    while (s.expedition!.status === 'active') s = play(s, true).state;
-    const done = concludeRound(s);
-    expect(done.run?.roundsCleared).toBe(1);
-    expect(done.run?.credits).toBe(START_CREDITS + 3);
-    expect(done.run?.meters.budget).toBeGreaterThan(withRun().run!.meters.budget);
-    expect(done.run?.roundsCleared).toBeLessThan(RUN_GOAL);
-  });
-
-  it('spends credits on an offered upgrade and lets a run with none alone', () => {
+  it('spends credits on an offered upgrade and lets a session with no run alone', () => {
     const s = { ...withRun(), run: { ...withRun().run!, credits: 5 } };
     const bought = buyRunUpgrade(s, s.run.offer[0]);
     expect(Object.values(bought.run!.upgrades)).toEqual([1]);
-    expect(buyRunUpgrade(fresh(), 'depth').run).toBeNull();
-    expect(newRun(tick(), 'x', 1).upgrades).toEqual({});
-  });
-});
-
-describe('a lab submission', () => {
-  it('is recorded like a scene answer: progress, remediation, history, the run and the story beat', () => {
-    const s = fresh();
-    const req = buildSceneRequest(s.expedition!, (id) => s.progress[id]);
-    const miss = answerChallenge(s, { req, correct: false, readout: 'validation loss 0.61', now: tick(), eventId: 'lab-1', model: null });
-    expect(miss.gate.advance).toBe(false);
-    expect(miss.state.progress[req.anchor.id].attempts).toBe(1);
-    expect(miss.state.remediation).toEqual([req.anchor.id]);
-    expect(miss.state.events[0]).toMatchObject({ id: 'lab-1', mode: 'lab', source: 'offline', correct: false, risk: 1, note: 'validation loss 0.61' });
-    expect(miss.state.history[0]).toMatchObject({ concept: req.anchor.id, correct: false, mode: 'lab' });
-    expect(miss.state.expedition!.log[0]).toMatchObject({ correct: false, choice: 'validation loss 0.61', consequence: 'The lab reported: validation loss 0.61.' });
-    const hit = answerChallenge(miss.state, { req, correct: true, readout: 'validation loss 0.31', now: tick(), eventId: 'lab-2', model: null });
-    expect(hit.points).toBeGreaterThan(0);
-    expect(hit.state.progress[req.anchor.id].correct).toBe(1);
-    expect(hit.state.stats.modesUsed).toEqual(['lab']);
+    expect(buyRunUpgrade(newSession(tick(), 'x'), 'depth').run).toBeNull();
+    expect(() => submit(withRun(), defaultLab(1), 'none')).toThrow();
   });
 });
