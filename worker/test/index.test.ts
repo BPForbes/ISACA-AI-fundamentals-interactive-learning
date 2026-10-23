@@ -2,6 +2,9 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 import worker, { sha256Hex, type Env } from '../src/index';
 import { fileURLToPath } from 'node:url';
 import { createFakeD1 } from './fakeD1';
+import type { MasteryMatrix } from '../../src/engine/attention';
+import { packMatrix, toBase64 } from '../../src/engine/matrix';
+import { CONCEPTS, LIST_VERSION } from '../../src/engine/relations';
 
 const TOKEN = `tok-${Math.random().toString(36).slice(2)}`;
 const ORIGIN = 'https://bpforbes.github.io';
@@ -125,6 +128,46 @@ describe('save and progress', () => {
   it('refuses oversized bodies', async () => {
     const res = await post('/api/save', { ...savePayload('big'), padding: 'x'.repeat(600 * 1024) });
     expect(res.status).toBe(413);
+  });
+});
+
+const packed = toBase64(packMatrix(new Map([
+  ['kpi', { p: 0.9, evidence: 4, attempts: 4, state: 'mastered', lastAt: null }],
+]) as MasteryMatrix));
+const mastery = (updatedAt: string, reason = 'mastery', extra: Record<string, unknown> = {}) => ({
+  packed, concepts: CONCEPTS.length, listVersion: LIST_VERSION, reason, updatedAt, ...extra,
+});
+
+describe('mastery matrix', () => {
+  it('stores the packed matrix with its save and returns it as progress', async () => {
+    const res = await post('/api/save', { ...savePayload('save-m'), mastery: mastery('2026-10-22T10:00:00Z') });
+    expect(await res.json()).toMatchObject({ status: 'saved', mastery: true });
+    const progress = await (await call('/api/progress')).json() as { mastery: unknown };
+    expect(progress.mastery).toEqual(mastery('2026-10-22T10:00:00Z'));
+  });
+
+  it('keeps the newer matrix and accepts saves without one', async () => {
+    await post('/api/save', { ...savePayload('a'), mastery: mastery('2026-10-22T12:00:00Z', 'struggle') });
+    await post('/api/save', { ...savePayload('b'), mastery: mastery('2026-10-22T08:00:00Z', 'manual') });
+    await post('/api/save', savePayload('c'));
+    const row = fake.db.prepare("SELECT reason FROM mastery_matrix WHERE id = 'current'").get() as { reason: string };
+    expect(row.reason).toBe('struggle');
+    expect((await (await call('/api/progress')).json() as { mastery: { reason: string } }).mastery.reason).toBe('struggle');
+  });
+
+  it('refuses a malformed matrix before writing anything', async () => {
+    const at = '2026-10-22T10:00:00Z';
+    const bad = [
+      mastery(at, 'because'),
+      mastery(at, 'manual', { packed: 'not base64!' }),
+      mastery(at, 'manual', { packed: packed.slice(0, -4) }),
+      mastery(at, 'manual', { listVersion: (LIST_VERSION + 1) & 0xffff }),
+      mastery(at, 'manual', { concepts: CONCEPTS.length + 8 }),
+      mastery(at, 'manual', { concepts: 0 }),
+    ];
+    for (const [k, m] of bad.entries()) expect((await post('/api/save', { ...savePayload(`bad-${k}`), mastery: m })).status).toBe(400);
+    expect((fake.db.prepare('SELECT COUNT(*) AS n FROM saves').get() as { n: number }).n).toBe(0);
+    expect(((await (await call('/api/progress')).json()) as { mastery: unknown }).mastery).toBeNull();
   });
 });
 

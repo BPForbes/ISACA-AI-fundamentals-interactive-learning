@@ -118,11 +118,32 @@ a **hybrid AI**: explicit rules plus a learned model.
 
 The Journal shows the model's held-out accuracy and log-loss against the baseline, and its forecast per concept.
 
+## The mastery matrix: attention over related and recent answers
+
+Beside the LSTM, an **attention tracker** ([`src/engine/attention.ts`](src/engine/attention.ts)) keeps a mastery
+matrix: one estimate per concept, recomputed after every answer. It is the attention step of a transformer applied to
+your answer history, with two biases in place of learned projections, not a trained transformer:
+
+- **Orthogonal reasoning.** Its keys are a concept relation table
+  ([`src/engine/relations.ts`](src/engine/relations.ts)) built from the guide itself: terms of one chain step,
+  "do not confuse" pairs, adjacent steps and shared sections are related; anything else is orthogonal, and an answer
+  on an orthogonal concept is masked out.
+- **Temporal reasoning.** Each answer's weight halves after a fitted half-life, so mastery you have not used fades.
+
+The half-life and how sharply relation counts are fitted on your older answers and used only while they beat the
+per-concept baseline on your newest ones; until then each concept is its own baseline. A concept is called
+*mastered* or *struggling* only on its own answers. The director uses the matrix to remap around the anchor without
+breaking the topic lock: a struggling anchor is explained through a **bridge**, a related concept you already answer
+well, and the next recommended expedition leans toward topics related to what you just mastered or are struggling
+with. The mastery rules still decide when you move on.
+
 ## Saving your progress
 
-Your learning stays in the current session (with a local draft, so a reload loses nothing) until you press **Save**.
-A save sends only what changed — the concepts you touched, the scenes you played, the rematch queue and a session
-summary — to a Cloudflare Worker backed by D1. Saves are idempotent, and an older copy of a concept never overwrites
+Your learning stays in the current session (with a local draft, so a reload loses nothing) until a save: when you
+press **Save**, and automatically, once the cloud is set up, when a concept reaches mastery or a struggle is detected
+(including deferring a stuck link). A save sends only what changed — the concepts you touched, the scenes you played,
+the rematch queue, a session summary and the mastery matrix, bit-packed to two bytes per concept — to a Cloudflare
+Worker backed by D1. Saves are idempotent, and an older copy of a concept never overwrites
 a newer one. See [`worker/README.md`](worker/README.md) to deploy it. Without it, progress lives in your browser.
 
 ## Development
@@ -137,7 +158,7 @@ npm run build    # typecheck and production build
 | Area | Location |
 | --- | --- |
 | Term bank, chains, distinctions, story settings | [`src/data/`](src/data) |
-| Mastery, scoring, director, templates, discriminator, LSTM tracker | [`src/engine/`](src/engine) |
+| Mastery, scoring, director, templates, discriminator, LSTM and attention trackers, relation table, packed matrix | [`src/engine/`](src/engine) |
 | Hosted, in-browser, Ollama and Workers AI backends; the generate–discriminate loop | [`src/llm/`](src/llm) |
 | Session state, dirty tracking, study-context export | [`src/session/`](src/session) |
 | Cloud client and the Cloudflare Worker + D1 migration | [`src/sync/`](src/sync), [`worker/`](worker) |

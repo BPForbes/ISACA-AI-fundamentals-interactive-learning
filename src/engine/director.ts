@@ -1,11 +1,17 @@
 // The director plays the tutor from the integration guide: it keeps one active
 // expedition (topic lock), picks the teaching mode from the anchor's evidence,
 // keeps a missed anchor in play until it is answered, and advances the story.
+// With the mastery matrix (attention.ts) it also remaps around the anchor: a
+// struggling learner gets a related concept they already know as a bridge, and
+// the next expedition leans toward topics related to what was just mastered or
+// is being struggled with. Orthogonal topics get no such pull.
 
 import { CHAINS, CHAIN_BY_ID, contrastPartners, distinctionFor, type Chain, type ChainStep } from '../data/chains';
 import { SETTINGS, SETTING_BY_ID, type StorySetting } from '../data/settings';
 import { TERM_BY_ID, type Term } from '../data/terms';
+import type { MasteryMatrix } from './attention';
 import { consecutiveMisses, levelOf, type Stage, type TermProgress } from './progress';
+import { neighbours, relation, REL_ADJACENT_STEP } from './relations';
 import type { TeachingMode } from './scene';
 
 export const CALCULATION_TERMS = new Set(['confusion-matrix', 'tp', 'fn', 'fp', 'tn', 'precision', 'recall', 'specificity', 'accuracy']);
@@ -49,6 +55,8 @@ export type SceneRequest = {
   mode: TeachingMode;
   stage: Stage;
   contrast?: { partner: Term; clue: string };
+  // A related concept the learner already answers well, used to explain the anchor they are struggling with.
+  bridge?: Term;
   storySoFar: string[];
   meters: Meters;
   missesOnStep: number;
@@ -104,7 +112,34 @@ export const startExpedition = (
   };
 };
 
-export const buildSceneRequest = (exp: Expedition, progress: (id: string) => TermProgress | undefined): SceneRequest => {
+// A bridge must be answered this well, on the learner's own answers.
+export const BRIDGE_MIN_P = 0.7;
+
+/**
+ * The related concept to explain a struggling anchor with: linked at least as
+ * closely as adjacent chain steps, answered by the learner, not itself shaky,
+ * and the strongest by relation × estimate. Orthogonal concepts never qualify.
+ */
+export const bridgeFor = (anchorId: string, matrix: MasteryMatrix, exclude: string[] = []): string | null => {
+  let best: string | null = null;
+  let bestScore = 0;
+  for (const { id, weight } of neighbours(anchorId, REL_ADJACENT_STEP)) {
+    const e = matrix.get(id);
+    if (!e || exclude.includes(id) || e.attempts === 0 || e.state === 'struggling' || e.p < BRIDGE_MIN_P) continue;
+    const score = weight * e.p;
+    if (score > bestScore) {
+      best = id;
+      bestScore = score;
+    }
+  }
+  return best;
+};
+
+export const buildSceneRequest = (
+  exp: Expedition,
+  progress: (id: string) => TermProgress | undefined,
+  matrix?: MasteryMatrix,
+): SceneRequest => {
   const chain = CHAIN_BY_ID.get(exp.chainId)!;
   const step = chain.steps[exp.stepIndex];
   const anchor = TERM_BY_ID.get(step.anchor)!;
@@ -121,6 +156,8 @@ export const buildSceneRequest = (exp: Expedition, progress: (id: string) => Ter
     const partner = TERM_BY_ID.get(partners[exp.missesOnStep % partners.length])!;
     contrast = { partner, clue: distinctionFor(anchor.id, partner.id)!.clue };
   }
+  const struggling = exp.missesOnStep > 0 || matrix?.get(anchor.id)?.state === 'struggling';
+  const bridgeId = struggling && matrix ? bridgeFor(anchor.id, matrix, contrast ? [contrast.partner.id] : []) : null;
   return {
     chain,
     step,
@@ -131,6 +168,7 @@ export const buildSceneRequest = (exp: Expedition, progress: (id: string) => Ter
     mode,
     stage: p?.stage ?? 1,
     contrast,
+    bridge: bridgeId ? TERM_BY_ID.get(bridgeId) : undefined,
     storySoFar: exp.log.slice(-3).map((b) => b.consequence).filter(Boolean),
     meters: exp.meters,
     missesOnStep: exp.missesOnStep,
@@ -187,15 +225,42 @@ export const deferStep = (exp: Expedition): Expedition => {
 
 const WEAKNESS: Record<string, number> = { Unknown: 1, Familiar: 0.8, Competent: 0.5, Proficient: 0.2, Mastered: 0 };
 
-/** Recommends the expedition whose anchors are weakest, boosting anything queued for remediation. */
-export const recommendChain = (progress: (id: string) => TermProgress | undefined, remediation: string[]): Chain => {
+// Concepts mastered this recently pull related topics forward.
+export const RECENT_MASTERY_HOURS = 24;
+const RELATED_PULL = 0.5;
+
+/** Concepts that should pull related topics forward: just mastered, or being struggled with. */
+export const focusConcepts = (matrix: MasteryMatrix): string[] => {
+  let newest = 0;
+  for (const e of matrix.values()) if (e.lastAt) newest = Math.max(newest, Date.parse(e.lastAt));
+  const since = newest - RECENT_MASTERY_HOURS * 3_600_000;
+  return [...matrix.entries()]
+    .filter(([, e]) => e.state === 'struggling' || (e.state === 'mastered' && e.lastAt !== null && Date.parse(e.lastAt) >= since))
+    .map(([id]) => id);
+};
+
+/**
+ * Recommends the expedition whose anchors are weakest, boosting anything queued for
+ * remediation. With the mastery matrix, a decayed estimate counts as weakness (temporal),
+ * and unmastered anchors related to a focus concept are pulled forward in proportion
+ * to the relation; orthogonal anchors are not.
+ */
+export const recommendChain = (
+  progress: (id: string) => TermProgress | undefined,
+  remediation: string[],
+  matrix?: MasteryMatrix,
+): Chain => {
+  const focus = matrix ? focusConcepts(matrix) : [];
   let best = CHAINS[0];
   let bestScore = -1;
   for (const chain of CHAINS) {
     const score = chain.steps.reduce((sum, s) => {
       const p = progress(s.anchor);
-      const weak = WEAKNESS[p ? levelOf(p) : 'Unknown'];
-      return sum + weak + (remediation.includes(s.anchor) ? 1 : 0);
+      const level = p ? levelOf(p) : 'Unknown';
+      const e = matrix?.get(s.anchor);
+      const weak = e && e.attempts > 0 ? Math.max(WEAKNESS[level], 1 - e.p) : WEAKNESS[level];
+      const pull = e?.state === 'mastered' ? 0 : Math.max(0, ...focus.filter((f) => f !== s.anchor).map((f) => relation(s.anchor, f)));
+      return sum + weak + (remediation.includes(s.anchor) ? 1 : 0) + RELATED_PULL * pull;
     }, 0) / chain.steps.length;
     if (score > bestScore + 1e-9) {
       best = chain;

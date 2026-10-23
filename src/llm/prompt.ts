@@ -62,7 +62,7 @@ Current link ${req.stepIndex + 1} of ${req.chain.steps.length}, Chapter ${req.st
 
 Anchor concept (the only thing scored): ${req.anchor.term}
 Exam definition: ${req.anchor.definition}
-${req.contrast ? `Closest confusion: ${req.contrast.partner.term} — ${req.contrast.partner.definition}\nDeciding clue: ${req.contrast.clue}\n` : ''}Supporting concepts (context only):
+${req.contrast ? `Closest confusion: ${req.contrast.partner.term} — ${req.contrast.partner.definition}\nDeciding clue: ${req.contrast.clue}\n` : ''}${req.bridge ? `Bridge the learner already knows (explain the anchor through it, do not score it): ${req.bridge.term} — ${req.bridge.definition}\n` : ''}Supporting concepts (context only):
 ${supporting || '- none'}
 
 Teaching mode: ${MODE_LABELS[req.mode]}. ${MODE_GUIDANCE[req.mode]}

@@ -74,7 +74,7 @@ export const judgeRules = (candidate: Candidate, req: SceneRequest, template: Sc
     ok: candidate.narration.length >= 80,
     detail: 'The narration should set the scene in at least two sentences.',
   });
-  const linked = [...req.supporting, ...(req.contrast ? [req.contrast.partner] : [])];
+  const linked = [...req.supporting, ...(req.contrast ? [req.contrast.partner] : []), ...(req.bridge ? [req.bridge] : [])];
   if (linked.length > 0) {
     checks.push({
       name: 'chain context',

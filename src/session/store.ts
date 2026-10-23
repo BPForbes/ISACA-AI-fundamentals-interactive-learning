@@ -1,5 +1,6 @@
 // Session state. Everything learned is kept here, in memory and in a local
-// draft, and marked dirty; nothing goes to the cloud until the learner saves.
+// draft, and marked dirty; nothing goes to the cloud until a save: the learner's,
+// or the automatic one when a concept reaches mastery or a struggle is detected.
 // A save sends only what changed since the last save, under a save id the
 // Worker uses to make a retried save harmless.
 
@@ -10,7 +11,7 @@ import { creditExplanation, levelOf, mergeProgress, newProgress, recordAnswer, S
 import { scoreAnswer } from '../engine/scoring';
 import { decideAdvance, type GateDecision, type HistoryEvent, type TrackerModel } from '../engine/tracker';
 import type { Choice, Scene } from '../engine/scene';
-import type { RemoteProgress, SavePayload, SceneEvent, SessionSummary } from '../sync/cloud';
+import type { MasterySnapshot, RemoteProgress, SavePayload, SceneEvent, SessionSummary } from '../sync/cloud';
 
 export const CAMP_INTERVAL = 6;
 export const TARGET_POINTS = 2500;
@@ -219,12 +220,13 @@ export const summarize = (s: SessionState, now: string): SessionSummary => ({
   expeditions: s.stats.expeditions,
 });
 
-export const buildSavePayload = (s: SessionState, now: string, saveId: string): SavePayload => ({
+export const buildSavePayload = (s: SessionState, now: string, saveId: string, mastery?: MasterySnapshot): SavePayload => ({
   saveId,
   session: summarize(s, now),
   terms: s.dirty.map((id) => s.progress[id]).filter((p): p is TermProgress => Boolean(p)),
   events: s.events,
   remediation: s.remediation,
+  ...(mastery ? { mastery } : {}),
 });
 
 /** Clears only what the payload carried, so answers given while a save was in flight stay dirty. */

@@ -1,4 +1,5 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { TERM_BY_ID } from '../../data/terms';
 import { buildSceneRequest, startExpedition } from '../../engine/director';
 import { defaultLlmSettings } from '../config';
 import { activeBackend, evaluateNote, generateScene } from '..';
@@ -116,6 +117,13 @@ describe('scene generation', () => {
     expect(user).toContain(req.anchor.definition);
     expect(user).toContain('The mayor video went viral.');
     expect(system).toContain('Exactly one choice is correct');
+  });
+
+  it('names a bridge concept as context, never as the scored anchor', () => {
+    const bridge = TERM_BY_ID.get('generative-ai')!;
+    const { user } = buildScenePrompt({ ...req, bridge });
+    expect(user).toContain(`Bridge the learner already knows (explain the anchor through it, do not score it): ${bridge.term}`);
+    expect(buildScenePrompt(req).user).not.toContain('Bridge the learner');
   });
 
   it('judges a field note with the model, or offline when the answer is unusable', async () => {

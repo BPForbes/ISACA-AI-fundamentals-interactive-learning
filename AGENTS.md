@@ -21,6 +21,12 @@ plus a Cloudflare Worker (`worker/`) that stores progress in D1 and can generate
 - The LSTM progress model (`src/engine/tracker.ts`) may influence the move-on decision only while its held-out
   assessment beats the baseline. The rules in `decideAdvance` always apply, and the confirmation cap keeps a learner
   from being held on one link indefinitely.
+- The attention tracker (`src/engine/attention.ts`) is the attention step of a transformer with fixed biases, not a
+  trained transformer; call it that. Its fitted half-life and sharpness apply only while they beat the per-concept
+  baseline on held-out answers. Orthogonal concepts (relation 0 in `src/engine/relations.ts`) never inform each other,
+  and a concept is mastered or struggling only on its own answers. It may remap (a bridge concept, the recommended
+  expedition) but never decides move-on: that stays with `decideAdvance`. The relation table comes from the guide's
+  chains, distinctions and sections, never from model output.
 - Calculation scenes stay on the offline engine so arithmetic is exact.
 
 ## Data and security
@@ -37,7 +43,11 @@ plus a Cloudflare Worker (`worker/`) that stores progress in D1 and can generate
 - The Worker refuses every authenticated route while `SYNC_TOKEN_SHA256` is unset, and limits CORS to
   `ALLOWED_ORIGINS`. Keep both fail-closed.
 - A save is one D1 batch (one transaction) and idempotent by `saveId`; a concept row is only replaced by a newer
-  `updatedAt`. Keep both properties, and validate every field before it reaches SQL.
+  `updatedAt`. Keep both properties, and validate every field before it reaches SQL. The packed mastery matrix
+  (`mastery_matrix`, one row) follows the same newer-`updatedAt` rule, and the Worker checks its format byte, list
+  version and length before storing it.
+- Saves happen on the learner's Save, and automatically (only with the cloud configured) when a concept reaches
+  mastery or a struggle is detected. Do not add other automatic saves.
 
 ## Workflow
 

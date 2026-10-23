@@ -42,6 +42,13 @@ describe('session store', () => {
     expect(s.lastSavedAt).not.toBeNull();
   });
 
+  it('carries the packed mastery matrix only when one is given', () => {
+    const s = play(fresh(), true).state;
+    expect(buildSavePayload(s, tick(), 'plain')).not.toHaveProperty('mastery');
+    const mastery = { packed: 'AQAA', concepts: 1, listVersion: 0, reason: 'mastery' as const, updatedAt: tick() };
+    expect(buildSavePayload(s, tick(), 'with', mastery).mastery).toEqual(mastery);
+  });
+
   it('clears a remediation item after two correct answers in a row', () => {
     let s = play(fresh(), false).state;
     expect(s.remediation).toEqual(['model-assessment']);

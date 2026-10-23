@@ -61,12 +61,24 @@ export type SceneEvent = {
   note: string;
 };
 
+// The bit-packed mastery matrix (src/engine/matrix.ts), base64 in JSON.
+export type MasterySnapshot = {
+  packed: string;
+  concepts: number;
+  listVersion: number;
+  // What triggered the save: the learner, a concept reaching mastery, or a struggle.
+  reason: 'manual' | 'mastery' | 'struggle';
+  updatedAt: string;
+};
+
 export type SavePayload = {
   saveId: string;
   session: SessionSummary;
   terms: TermProgress[];
   events: SceneEvent[];
   remediation: string[];
+  // Older clients omit it.
+  mastery?: MasterySnapshot;
 };
 
 export type RemoteProgress = {
@@ -75,6 +87,7 @@ export type RemoteProgress = {
   remediation: string[];
   // Recent answers, so a new device can train the progress model. Older Workers omit it.
   events?: SceneEvent[];
+  mastery?: MasterySnapshot | null;
 };
 
 const request = async (c: CloudConfig, path: string, init: RequestInit = {}): Promise<Response> => {
