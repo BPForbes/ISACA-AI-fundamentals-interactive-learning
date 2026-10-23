@@ -14,6 +14,10 @@ plus a Cloudflare Worker (`worker/`) that stores progress in D1 and can generate
 - Keep the guide's teaching rules: one anchor concept per scene (topic lock), a miss keeps the anchor in play,
   points never override mastery, and familiar (personal-project) settings are analogies, never claims about what
   those projects implement.
+- Every scene happens in a situation from `src/data/situations.ts`, a new one for each scene of an expedition
+  (a re-asked link included). Scenes test a concept by applying it in that situation; a model draft that recites the
+  anchor's definition and asks for its name fails the discriminator's `applied situation` check (explain and
+  remediation scenes may teach the definition first). The offline template keeps the exact definition by design.
 - Model output is untrusted. Every generated scene must pass `sanitizeScene` and the discriminator
   (`src/engine/discriminator.ts`); never render model text without both. The offline template is the reference
   every draft is graded against, so keep the offline generator faithful to the term bank.

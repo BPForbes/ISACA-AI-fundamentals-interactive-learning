@@ -8,6 +8,7 @@
 
 import { CHAINS, CHAIN_BY_ID, contrastPartners, distinctionFor, type Chain, type ChainStep } from '../data/chains';
 import { SETTINGS, SETTING_BY_ID, type StorySetting } from '../data/settings';
+import { SITUATIONS, SITUATION_BY_ID, type Situation } from '../data/situations';
 import { TERM_BY_ID, type Term } from '../data/terms';
 import type { MasteryMatrix } from './attention';
 import { consecutiveMisses, levelOf, type Stage, type TermProgress } from './progress';
@@ -28,6 +29,8 @@ export type StoryBeat = {
   choice: string;
   correct: boolean;
   consequence: string;
+  // The situation the scene was set in (data/situations.ts); older saves lack it.
+  situation?: string;
 };
 
 export type Expedition = {
@@ -50,6 +53,10 @@ export type SceneRequest = {
   step: ChainStep;
   stepIndex: number;
   setting: StorySetting;
+  // The moment this scene happens in, different from every earlier scene of the expedition.
+  situation: Situation;
+  // Situations already used in this expedition, newest last, so a model does not repeat them.
+  usedSituations: Situation[];
   anchor: Term;
   supporting: Term[];
   mode: TeachingMode;
@@ -135,6 +142,24 @@ export const bridgeFor = (anchorId: string, matrix: MasteryMatrix, exclude: stri
   return best;
 };
 
+const hash = (text: string) => {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < text.length; i += 1) h = Math.imul(h ^ text.charCodeAt(i), 0x01000193);
+  return h >>> 0;
+};
+
+/**
+ * The next scene's situation: one not yet used in this expedition (once all are used,
+ * any but the last three), picked deterministically from the expedition and its log so
+ * a re-asked link after a miss lands in a new moment.
+ */
+export const pickSituation = (exp: Expedition): Situation => {
+  const used = exp.log.map((b) => b.situation).filter((id): id is string => Boolean(id));
+  const fresh = SITUATIONS.filter((s) => !used.includes(s.id));
+  const pool = fresh.length > 0 ? fresh : SITUATIONS.filter((s) => !used.slice(-3).includes(s.id));
+  return pool[hash(`${exp.id}:${exp.log.length}`) % pool.length];
+};
+
 export const buildSceneRequest = (
   exp: Expedition,
   progress: (id: string) => TermProgress | undefined,
@@ -163,6 +188,11 @@ export const buildSceneRequest = (
     step,
     stepIndex: exp.stepIndex,
     setting: SETTING_BY_ID.get(exp.settingId)!,
+    situation: pickSituation(exp),
+    usedSituations: exp.log
+      .map((b) => (b.situation ? SITUATION_BY_ID.get(b.situation) : undefined))
+      .filter((x): x is Situation => Boolean(x))
+      .slice(-5),
     anchor,
     supporting: step.supporting.map((id) => TERM_BY_ID.get(id)).filter((t): t is Term => Boolean(t)),
     mode,

@@ -47,6 +47,8 @@ The learner plays an AI advisor. Each scene is one decision point in an ongoing 
 
 Hard rules:
 - Score exactly one anchor concept. Other concepts may appear only to explain it.
+- Test the concept by applying it: write a concrete situation (who did what, what happened, what is at stake) in which the learner must recognize or use the concept. Never restate the exam definition and ask for its name.
+- Every scene is a new situation. Do not reuse an earlier situation, problem or wording.
 - Stay faithful to the exam definitions given. Never contradict them or invent facts about real organizations or laws.
 - Exactly one choice is correct. Wrong choices must be plausible near-misses that a learner might confuse with the anchor, never jokes.
 - "explanation" says why that choice is right or wrong using the exam wording; for wrong choices include the deciding clue.
@@ -69,13 +71,15 @@ Teaching mode: ${MODE_LABELS[req.mode]}. ${MODE_GUIDANCE[req.mode]}
 Learner's terminology stage for the anchor: ${STAGE_NAMES[req.stage]}${req.missesOnStep > 0 ? `\nThe learner has missed this link ${req.missesOnStep} time(s) in this expedition: use new wording and a different angle.` : ''}
 
 Setting: ${req.setting.name}. ${req.setting.premise}
+This scene's situation: ${req.situation.moment}
+${req.usedSituations.length ? `Situations already used in this expedition (do not repeat them): ${req.usedSituations.map((u) => u.moment).join(' | ')}\n` : ''}
 Cast: ${req.setting.cast.join('; ')}
 Team meters (0-100): trust ${req.meters.trust}, budget ${req.meters.budget}, risk ${req.meters.risk}
 Story so far:
 ${story}
 
 ${req.confirming ? 'The learner just got this link right; this scene confirms it from a different angle before the story moves on.\n' : ''}${template ? `
-Reference template (a real scene built from the exam definitions). Keep its correct concept and the kind of near-miss distractors it uses, but write a richer, more realistic story in the setting:
+Reference template (built from the exam definitions). Use it only for the answer key and the kind of near-miss distractors: keep its correct concept and distractor concepts, but do not copy its wording or its definition-recall question. Write a new situation in which the concept has to be applied:
 ${templateJson(template, true)}
 ` : ''}${feedback.length ? `
 A reviewer rejected your previous draft. Fix every point:

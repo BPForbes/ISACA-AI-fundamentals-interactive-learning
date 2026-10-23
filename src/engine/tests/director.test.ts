@@ -1,7 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import { CHAINS } from '../../data/chains';
 import type { ConceptEstimate, MasteryMatrix } from '../attention';
-import { applyDecision, bridgeFor, buildSceneRequest, chooseMode, deferStep, focusConcepts, recommendChain, startExpedition } from '../director';
+import { SITUATIONS } from '../../data/situations';
+import { applyDecision, bridgeFor, buildSceneRequest, chooseMode, deferStep, focusConcepts, pickSituation, recommendChain, startExpedition } from '../director';
 import { newProgress, recordAnswer } from '../progress';
 
 const rng = () => 0.42;
@@ -97,5 +98,20 @@ describe('director', () => {
     expect(focusConcepts(old)).toEqual([]);
     expect(focusConcepts(new Map([['recall', est(0.3, 3, 'struggling', '2026-01-01T00:00:00Z')]]))).toEqual(['recall']);
     expect(recommendChain(strong, []).id).toBe(recommendChain(strong, [], new Map()).id);
+  });
+
+  it('puts every scene of an expedition, including a re-ask after a miss, in a new situation', () => {
+    let exp = startExpedition('metrics-to-business', { lastKind: null, now, rng });
+    const seen: string[] = [];
+    for (let k = 0; k < SITUATIONS.length; k += 1) {
+      const req = buildSceneRequest(exp, () => undefined);
+      expect(seen).not.toContain(req.situation.id);
+      expect(req.usedSituations.map((u) => u.id)).toEqual(seen.slice(-5));
+      seen.push(req.situation.id);
+      // A miss keeps the anchor in play; the next scene still moves to a new moment.
+      exp = applyDecision(exp, { anchor: req.anchor.id, choice: 'x', correct: false, consequence: 'c', situation: req.situation.id });
+    }
+    // Once every situation is used, the last three are still avoided.
+    expect(seen.slice(-3)).not.toContain(pickSituation(exp).id);
   });
 });

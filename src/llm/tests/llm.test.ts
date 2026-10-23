@@ -126,6 +126,14 @@ describe('scene generation', () => {
     expect(buildScenePrompt(req).user).not.toContain('Bridge the learner');
   });
 
+  it('asks for an applied, new situation instead of the template’s definition recall', () => {
+    const used = { ...req, usedSituations: [{ id: 'pilot-results', moment: 'The first pilot results have just come in.' }] };
+    const { system, user } = buildScenePrompt(used);
+    expect(user).toContain(`This scene's situation: ${req.situation.moment}`);
+    expect(user).toContain('do not repeat them): The first pilot results have just come in.');
+    expect(system).toContain('Never restate the exam definition and ask for its name');
+  });
+
   it('judges a field note with the model, or offline when the answer is unusable', async () => {
     ollamaReplies(JSON.stringify({ verdict: 'partial', feedback: 'Close — it is a capability.' }));
     expect((await evaluateNote(req, 'Generative AI', 'it makes stuff', ollama, noCloud)).source).toBe('ai');

@@ -159,6 +159,7 @@ export const answerScene = (s: SessionState, a: AnswerInput): AnswerOutcome => {
     choice: a.choice.text,
     correct: a.choice.correct,
     consequence: a.choice.consequence,
+    situation: a.req.situation.id,
   }, gate.advance);
 
   const sinceCamp = s.sinceCamp + 1;

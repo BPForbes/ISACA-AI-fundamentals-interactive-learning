@@ -81,7 +81,7 @@ export const generateScene = async (
       continue;
     }
 
-    const rules = judgeRules(candidate, req, template);
+    const rules = judgeRules(candidate, req, template, { applied: true });
     if (!rules.pass) {
       feedback = rules.issues;
       lastIssues = rules.issues;

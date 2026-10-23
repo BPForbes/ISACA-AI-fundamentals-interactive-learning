@@ -92,10 +92,12 @@ flowchart LR
 
 1. **Template.** The offline engine builds a scene for the step straight from the term bank. It is the "real"
    sample: always faithful to the exam wording, but plain.
-2. **Generator.** A language model rewrites it into a richer story in the expedition's setting, keeping the correct
-   concept and the kind of near-miss distractors.
-3. **Discriminator.** Rules check that the answer key expresses the definition, the story does not give the answer
-   away, exactly one choice is the concept, and the wrong choices are real course concepts. Then an optional AI
+2. **Generator.** A language model writes a new scene in the expedition's setting and this scene's situation (an
+   incident review, a vendor pitch, an audit finding and so on, never one already used in the expedition), keeping
+   the template's correct concept and the kind of near-miss distractors but not its definition-recall wording.
+3. **Discriminator.** Rules check that the answer key expresses the definition, the story applies the concept rather
+   than reciting its definition, the story does not give the answer away, exactly one choice is the concept, and the
+   wrong choices are real course concepts. Then an optional AI
    critic answers the question blind; if it picks a different choice or finds a contradiction, the draft is rejected.
 4. **Feedback.** Rejected drafts go back with the reasons, up to three rounds, before the template is used.
 
@@ -157,7 +159,7 @@ npm run build    # typecheck and production build
 
 | Area | Location |
 | --- | --- |
-| Term bank, chains, distinctions, story settings | [`src/data/`](src/data) |
+| Term bank, chains, distinctions, story settings, scene situations | [`src/data/`](src/data) |
 | Mastery, scoring, director, templates, discriminator, LSTM and attention trackers, relation table, packed matrix | [`src/engine/`](src/engine) |
 | Hosted, in-browser, Ollama and Workers AI backends; the generate–discriminate loop | [`src/llm/`](src/llm) |
 | Session state, dirty tracking, study-context export | [`src/session/`](src/session) |

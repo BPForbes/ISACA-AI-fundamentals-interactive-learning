@@ -87,8 +87,23 @@ const narrationFor = (req: SceneRequest, rng: () => number): string => {
   const beat = mentionsTerm(req.step.beat, req.anchor)
     ? `Expedition beat — ${CHAPTERS[req.step.chapter].question}`
     : `Expedition beat — ${req.step.beat}`;
-  return `${lead}\n\n${beat}\n\n${speaker} turns to you.`;
+  return `${lead}\n\n${req.situation.moment} ${beat}\n\n${speaker} turns to you.`;
 };
+
+// Several ways to put the same exam-wording question, so consecutive template scenes
+// do not read alike. Each keeps the definition verbatim.
+const DESCRIBE_FRAMES: ((def: string) => string)[] = [
+  (def) => `“Here's what we're dealing with: ${def}. What do we call that, so everyone means the same thing?”`,
+  (def) => `“Strip away the noise and it comes down to this: ${def}. Which concept is that?”`,
+  (def) => `“The write-up so far describes it as ${def}. What's the right term for the record?”`,
+  (def) => `“If I had to put it in one line: ${def}. Name it, and we can move on.”`,
+];
+
+const NAME_FRAMES: ((term: string) => string)[] = [
+  (term) => `“Everything here hinges on ${term}. Before we act, make sure we all mean the same thing.”`,
+  (term) => `“Someone wrote ${term} on the whiteboard, and half the room reads it differently.”`,
+  (term) => `“The decision we make in this room depends on ${term}. Which description is the right one?”`,
+];
 
 const termChoices = (req: SceneRequest, rng: () => number, correctText: (t: Term) => string): Choice[] => {
   const prefer = req.contrast ? [req.contrast.partner.id] : [];
@@ -120,7 +135,7 @@ const recognitionScene = (req: SceneRequest, rng: () => number): Scene => {
   const narration = narrationFor(req, rng);
   if (scaffold) {
     return {
-      narration: `${narration} “Here's what we're dealing with: ${lowerFirst(stripPeriod(req.anchor.definition))}. What do we call that, so the board knows what we mean?”`,
+      narration: `${narration} ${pick(DESCRIBE_FRAMES, rng)(lowerFirst(stripPeriod(req.anchor.definition)))}`,
       prompt: 'Which concept is being described?',
       choices: termChoices(req, rng, (t) => t.term),
       socratic: socraticFor(req),
@@ -128,7 +143,7 @@ const recognitionScene = (req: SceneRequest, rng: () => number): Scene => {
     };
   }
   return {
-    narration: `${narration} “The board memo says this step depends on ${req.anchor.term}. Before we sign, make sure we all mean the same thing.”`,
+    narration: `${narration} ${pick(NAME_FRAMES, rng)(req.anchor.term)}`,
     prompt: `Which statement captures ${req.anchor.term}?`,
     choices: termChoices(req, rng, (t) => t.definition),
     socratic: socraticFor(req),

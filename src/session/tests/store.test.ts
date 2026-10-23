@@ -42,6 +42,13 @@ describe('session store', () => {
     expect(s.lastSavedAt).not.toBeNull();
   });
 
+  it('records the situation each scene was set in, so the next one differs', () => {
+    const s = play(fresh(), false).state;
+    const beat = s.expedition!.log[0];
+    expect(beat.situation).toBeDefined();
+    expect(buildSceneRequest(s.expedition!, (id) => s.progress[id]).situation.id).not.toBe(beat.situation);
+  });
+
   it('carries the packed mastery matrix only when one is given', () => {
     const s = play(fresh(), true).state;
     expect(buildSavePayload(s, tick(), 'plain')).not.toHaveProperty('mastery');
