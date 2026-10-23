@@ -15,7 +15,7 @@ AI_MODEL = "@cf/meta/llama-3.1-8b-instruct"
 binding = "DB"
 database_name = "isaca-quest"
 # Replace with the id printed by `wrangler d1 create isaca-quest`.
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "e80cb936-734f-48bc-aad8-d5e62b4b6fda"
 migrations_dir = "migrations"
 
 # Remove this block to turn off cloud scene generation.
