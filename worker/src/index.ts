@@ -168,6 +168,40 @@ const parseSession = (v: unknown) => {
   return { ...clean, raw: JSON.stringify(clean) };
 };
 
+const BASE64 = /^[A-Za-z0-9+/]*={0,2}$/;
+const MATRIX_REASONS = new Set(['manual', 'mastery', 'struggle']);
+const MAX_MATRIX_CHARS = Math.ceil((3 + Math.ceil(MAX_TERMS / 8) + 2 * MAX_TERMS) / 3) * 4;
+
+/**
+ * The packed mastery matrix (src/engine/matrix.ts). The Worker cannot rebuild the
+ * estimates, but it refuses anything that is not a well-formed matrix of the stated size.
+ */
+export const parseMastery = (v: unknown) => {
+  const m = obj(v, 'mastery');
+  const packed = str(m.packed, 'mastery.packed', MAX_MATRIX_CHARS, BASE64);
+  const concepts = num(m.concepts, 'mastery.concepts', 1, MAX_TERMS);
+  const listVersion = num(m.listVersion, 'mastery.listVersion', 0, 0xffff);
+  const reason = str(m.reason, 'mastery.reason', 16);
+  if (!Number.isInteger(concepts) || !Number.isInteger(listVersion) || !MATRIX_REASONS.has(reason)) {
+    throw new HttpError(400, 'mastery is invalid.');
+  }
+  let bytes: Uint8Array;
+  try {
+    bytes = Uint8Array.from(atob(packed), (ch) => ch.charCodeAt(0));
+  } catch {
+    throw new HttpError(400, 'mastery.packed is invalid.');
+  }
+  const bitmap = Math.ceil(concepts / 8);
+  let set = 0;
+  for (let i = 0; i < bitmap * 8 && 3 + (i >> 3) < bytes.length; i += 1) {
+    if (bytes[3 + (i >> 3)] & (1 << (i & 7))) set += i < concepts ? 1 : Infinity;
+  }
+  if (bytes.length < 3 + bitmap || bytes[0] !== 1 || ((bytes[1] << 8) | bytes[2]) !== listVersion || bytes.length !== 3 + bitmap + 2 * set) {
+    throw new HttpError(400, 'mastery.packed is invalid.');
+  }
+  return { packed, concepts, listVersion, reason, updatedAt: iso(m.updatedAt, 'mastery.updatedAt') };
+};
+
 export const parseSave = (v: unknown) => {
   const p = obj(v, 'save');
   return {
@@ -176,6 +210,7 @@ export const parseSave = (v: unknown) => {
     terms: arr(p.terms, 'terms', MAX_TERMS).map(parseTerm),
     events: arr(p.events, 'events', MAX_EVENTS).map(parseEvent),
     remediation: strList(p.remediation, 'remediation', MAX_TERMS, TERM_ID),
+    mastery: p.mastery === undefined ? null : parseMastery(p.mastery),
   };
 };
 
@@ -208,6 +243,12 @@ const save = async (env: Env, body: unknown, now: string) => {
       `INSERT INTO learner_state (key, value, updated_at) VALUES ('remediation', ?, ?)
        ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
     ).bind(JSON.stringify(p.remediation), now),
+    ...(p.mastery ? [env.DB.prepare(
+      `INSERT INTO mastery_matrix (id, packed, concepts, list_version, reason, updated_at) VALUES ('current', ?, ?, ?, ?, ?)
+       ON CONFLICT(id) DO UPDATE SET packed = excluded.packed, concepts = excluded.concepts, list_version = excluded.list_version,
+         reason = excluded.reason, updated_at = excluded.updated_at
+       WHERE excluded.updated_at > mastery_matrix.updated_at`,
+    ).bind(p.mastery.packed, p.mastery.concepts, p.mastery.listVersion, p.mastery.reason, p.mastery.updatedAt)] : []),
   ];
   try {
     await env.DB.batch(statements);
@@ -216,11 +257,11 @@ const save = async (env: Env, body: unknown, now: string) => {
     if (known) return { status: 'already_saved' as const };
     throw error;
   }
-  return { status: 'saved' as const, terms: p.terms.length, events: p.events.length };
+  return { status: 'saved' as const, terms: p.terms.length, events: p.events.length, mastery: p.mastery !== null };
 };
 
 const progress = async (env: Env) => {
-  const [terms, sessions, state, events] = await Promise.all([
+  const [terms, sessions, state, events, mastery] = await Promise.all([
     env.DB.prepare('SELECT data FROM term_progress').all<{ data: string }>(),
     env.DB.prepare('SELECT data FROM sessions ORDER BY ended_at DESC LIMIT 20').all<{ data: string }>(),
     env.DB.prepare("SELECT value FROM learner_state WHERE key = 'remediation'").first<{ value: string }>(),
@@ -229,6 +270,8 @@ const progress = async (env: Env) => {
       `SELECT id, session_id, at, chain_id, anchor, mode, setting_id, correct, risk, points, source FROM scene_events
        ORDER BY at DESC LIMIT ${MAX_EVENTS}`,
     ).all<Record<string, string | number>>(),
+    env.DB.prepare("SELECT packed, concepts, list_version, reason, updated_at FROM mastery_matrix WHERE id = 'current'")
+      .first<{ packed: string; concepts: number; list_version: number; reason: string; updated_at: string }>(),
   ]);
   return {
     terms: terms.results.map((r) => JSON.parse(r.data)),
@@ -238,6 +281,9 @@ const progress = async (env: Env) => {
       id: e.id, sessionId: e.session_id, at: e.at, chainId: e.chain_id, anchor: e.anchor, mode: e.mode, settingId: e.setting_id,
       correct: e.correct === 1, risk: e.risk, points: e.points, source: e.source, note: '',
     })),
+    mastery: mastery
+      ? { packed: mastery.packed, concepts: mastery.concepts, listVersion: mastery.list_version, reason: mastery.reason, updatedAt: mastery.updated_at }
+      : null,
   };
 };
 

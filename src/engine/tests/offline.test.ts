@@ -73,4 +73,10 @@ describe('offline scene generator', () => {
     expect(keywordOverlap('of all the actual positives, the fraction the model correctly found', def)).toBeGreaterThan(0.4);
     expect(keywordOverlap('something about money', def)).toBeLessThan(0.2);
   });
+
+  it('sets each template in the request’s situation', () => {
+    for (const req of requests().slice(0, 5)) {
+      expect(generateOfflineScene({ ...req, mode: 'guided', stage: 1 }, seeded(2)).narration).toContain(req.situation.moment);
+    }
+  });
 });

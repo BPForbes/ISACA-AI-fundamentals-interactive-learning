@@ -15,8 +15,8 @@ Shared rules live in [AGENTS.md](AGENTS.md); read and follow them first.
 | Area | Location | Role |
 | --- | --- | --- |
 | App shell | `src/App.tsx` | Expedition flow, saving, camp |
-| Study data | `src/data/` | Term bank, ten integration chains, distinctions, story settings |
-| Engine | `src/engine/` | Mastery and terminology ladder, scoring, teaching-mode director, offline scene generator (templates), scene sanitizer, discriminator, LSTM progress tracker (`lstm.ts`, `tracker.ts`, trained in `trackerWorker.ts`) |
+| Study data | `src/data/` | Term bank, ten integration chains, distinctions, story settings, scene situations |
+| Engine | `src/engine/` | Mastery and terminology ladder, scoring, teaching-mode director, offline scene generator (templates), scene sanitizer, discriminator, LSTM progress tracker (`lstm.ts`, `tracker.ts`), attention tracker over the concept relation table (`attention.ts`, `relations.ts`), both fitted in `trackerWorker.ts`, and the bit-packed mastery matrix (`matrix.ts`) |
 | AI | `src/llm/` | Free hosted models (`hosted.ts`: Groq, Gemini, OpenRouter), WebLLM, Ollama and Workers AI backends; the generate–discriminate loop in `index.ts` |
 | Session | `src/session/store.ts` | In-session state, dirty tracking, save payloads, study-context export |
-| Cloud | `src/sync/cloud.ts`, `worker/` | Save/load and key-vault client; the Cloudflare Worker, its encrypted API-key vault (`worker/src/vault.ts`) and the D1 migrations |
+| Cloud | `src/sync/cloud.ts`, `worker/` | Save/load and key-vault client; the Cloudflare Worker, its encrypted API-key vault (`worker/src/vault.ts`) and the D1 migrations (`0003` is the `mastery_matrix` table) |

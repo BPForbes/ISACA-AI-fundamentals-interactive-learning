@@ -9,6 +9,9 @@ import type { SceneRequest } from './director';
 import { keywordOverlap, mentionsTerm } from './offline';
 import type { Choice, Scene } from './scene';
 
+// Share of the anchor definition's content words above which a story is just reciting it.
+export const DEFINITION_ECHO = 0.75;
+
 export type Check = { name: string; ok: boolean; hard: boolean; detail: string };
 
 export type RuleVerdict = { pass: boolean; score: number; checks: Check[]; issues: string[] };
@@ -24,7 +27,7 @@ const grounded = (text: string, term: Term) => mentionsTerm(text, term) || keywo
 export const matchTerm = (choice: Choice): Term | undefined =>
   TERMS.find((t) => mentionsTerm(choice.text, t)) ?? TERMS.find((t) => keywordOverlap(choice.text, t.definition) >= 0.45);
 
-export const judgeRules = (candidate: Candidate, req: SceneRequest, template: Scene): RuleVerdict => {
+export const judgeRules = (candidate: Candidate, req: SceneRequest, template: Scene, opts: { applied?: boolean } = {}): RuleVerdict => {
   const right = candidate.choices.find((c) => c.correct)!;
   const wrong = candidate.choices.filter((c) => !c.correct);
   const story = `${candidate.narration} ${candidate.prompt}`;
@@ -42,6 +45,16 @@ export const judgeRules = (candidate: Candidate, req: SceneRequest, template: Sc
       hard: true,
       ok: !mentionsTerm(story, req.anchor),
       detail: `The narration and prompt must not name ${req.anchor.term}; describe the situation instead.`,
+    });
+  }
+  // Explain and remediation scenes may teach the definition in the narration; the rest must apply it.
+  // The offline template recites the definition by design, so this binds model drafts only.
+  if (opts.applied && req.mode !== 'explain' && req.mode !== 'remediation') {
+    checks.push({
+      name: 'applied situation',
+      hard: true,
+      ok: keywordOverlap(story, req.anchor.definition) < DEFINITION_ECHO,
+      detail: `Do not restate the definition of ${req.anchor.term} and ask for its name; write a situation in which it has to be applied.`,
     });
   }
   const ambiguous = wrong.filter((c) => mentionsTerm(c.text, req.anchor));
@@ -74,7 +87,7 @@ export const judgeRules = (candidate: Candidate, req: SceneRequest, template: Sc
     ok: candidate.narration.length >= 80,
     detail: 'The narration should set the scene in at least two sentences.',
   });
-  const linked = [...req.supporting, ...(req.contrast ? [req.contrast.partner] : [])];
+  const linked = [...req.supporting, ...(req.contrast ? [req.contrast.partner] : []), ...(req.bridge ? [req.bridge] : [])];
   if (linked.length > 0) {
     checks.push({
       name: 'chain context',

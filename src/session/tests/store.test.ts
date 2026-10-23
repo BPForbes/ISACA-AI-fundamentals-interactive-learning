@@ -42,6 +42,20 @@ describe('session store', () => {
     expect(s.lastSavedAt).not.toBeNull();
   });
 
+  it('records the situation each scene was set in, so the next one differs', () => {
+    const s = play(fresh(), false).state;
+    const beat = s.expedition!.log[0];
+    expect(beat.situation).toBeDefined();
+    expect(buildSceneRequest(s.expedition!, (id) => s.progress[id]).situation.id).not.toBe(beat.situation);
+  });
+
+  it('carries the packed mastery matrix only when one is given', () => {
+    const s = play(fresh(), true).state;
+    expect(buildSavePayload(s, tick(), 'plain')).not.toHaveProperty('mastery');
+    const mastery = { packed: 'AQAA', concepts: 1, listVersion: 0, reason: 'mastery' as const, updatedAt: tick() };
+    expect(buildSavePayload(s, tick(), 'with', mastery).mastery).toEqual(mastery);
+  });
+
   it('clears a remediation item after two correct answers in a row', () => {
     let s = play(fresh(), false).state;
     expect(s.remediation).toEqual(['model-assessment']);

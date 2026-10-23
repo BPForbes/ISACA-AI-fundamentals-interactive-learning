@@ -54,6 +54,17 @@ describe('rule discriminator', () => {
     const twoRight = { ...good, choices: good.choices.map((c) => (c.id === 'c' ? { ...c, text: 'Generative AI built on a Transformer' } : c)) };
     expect(judgeRules(twoRight, req, template).issues.join(' ')).toMatch(/single right answer/);
   });
+
+  it('rejects a model draft that recites the definition instead of applying it', () => {
+    const recital = { ...good, narration: `Tess reads from the glossary: ${req.anchor.definition} Which term is that?` };
+    expect(judgeRules(recital, req, template).pass).toBe(true);
+    const v = judgeRules(recital, req, template, { applied: true });
+    expect(v.pass).toBe(false);
+    expect(v.issues.join(' ')).toMatch(/applied situation/);
+    expect(judgeRules(good, req, template, { applied: true }).pass).toBe(true);
+    // Explain scenes may teach the definition first.
+    expect(judgeRules(recital, { ...req, mode: 'explain' }, template, { applied: true }).checks.map((c) => c.name)).not.toContain('applied situation');
+  });
 });
 
 describe('critic parsing', () => {

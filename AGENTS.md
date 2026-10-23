@@ -14,6 +14,10 @@ plus a Cloudflare Worker (`worker/`) that stores progress in D1 and can generate
 - Keep the guide's teaching rules: one anchor concept per scene (topic lock), a miss keeps the anchor in play,
   points never override mastery, and familiar (personal-project) settings are analogies, never claims about what
   those projects implement.
+- Every scene happens in a situation from `src/data/situations.ts`, a new one for each scene of an expedition
+  (a re-asked link included). Scenes test a concept by applying it in that situation; a model draft that recites the
+  anchor's definition and asks for its name fails the discriminator's `applied situation` check (explain and
+  remediation scenes may teach the definition first). The offline template keeps the exact definition by design.
 - Model output is untrusted. Every generated scene must pass `sanitizeScene` and the discriminator
   (`src/engine/discriminator.ts`); never render model text without both. The offline template is the reference
   every draft is graded against, so keep the offline generator faithful to the term bank.
@@ -21,6 +25,12 @@ plus a Cloudflare Worker (`worker/`) that stores progress in D1 and can generate
 - The LSTM progress model (`src/engine/tracker.ts`) may influence the move-on decision only while its held-out
   assessment beats the baseline. The rules in `decideAdvance` always apply, and the confirmation cap keeps a learner
   from being held on one link indefinitely.
+- The attention tracker (`src/engine/attention.ts`) is the attention step of a transformer with fixed biases, not a
+  trained transformer; call it that. Its fitted half-life and sharpness apply only while they beat the per-concept
+  baseline on held-out answers. Orthogonal concepts (relation 0 in `src/engine/relations.ts`) never inform each other,
+  and a concept is mastered or struggling only on its own answers. It may remap (a bridge concept, the recommended
+  expedition) but never decides move-on: that stays with `decideAdvance`. The relation table comes from the guide's
+  chains, distinctions and sections, never from model output.
 - Calculation scenes stay on the offline engine so arithmetic is exact.
 
 ## Data and security
@@ -37,7 +47,12 @@ plus a Cloudflare Worker (`worker/`) that stores progress in D1 and can generate
 - The Worker refuses every authenticated route while `SYNC_TOKEN_SHA256` is unset, and limits CORS to
   `ALLOWED_ORIGINS`. Keep both fail-closed.
 - A save is one D1 batch (one transaction) and idempotent by `saveId`; a concept row is only replaced by a newer
-  `updatedAt`. Keep both properties, and validate every field before it reaches SQL.
+  `updatedAt`. Keep both properties, and validate every field before it reaches SQL. The packed mastery matrix
+  (`mastery_matrix`, one row) follows the same newer-`updatedAt` rule, and the Worker checks its format byte, list
+  version and length before storing it.
+- Saves happen on the learner's Save, and automatically (only with the cloud configured) when a concept reaches
+  mastery or a struggle is detected; that save is sent when the learner leaves the scene, so the field note goes with
+  it. Do not add other automatic saves.
 
 ## Workflow
 

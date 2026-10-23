@@ -23,7 +23,7 @@ authenticated route while that secret is missing. CORS is limited to `ALLOWED_OR
 cd worker
 npx wrangler login
 npx wrangler d1 create isaca-quest            # copy the database_id into wrangler.toml
-npx wrangler d1 migrations apply isaca-quest --remote
+npx wrangler d1 migrations apply isaca-quest --remote   # re-run after pulling a new migration (0003 adds mastery_matrix)
 
 TOKEN=$(openssl rand -hex 32)                 # keep this; you paste it into the site's Settings
 printf %s "$TOKEN" | sha256sum | cut -d' ' -f1 | npx wrangler secret put SYNC_TOKEN_SHA256

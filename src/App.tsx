@@ -1,6 +1,9 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CHAIN_BY_ID } from './data/chains';
 import { buildSceneRequest, DEFER_AFTER_MISSES, recommendChain, startExpedition, type SceneRequest } from './engine/director';
+import { fitAttention, masteryEvent, masteryMatrix, type AttentionModel, type MasteryEvent, type MasteryMatrix } from './engine/attention';
+import { packMatrix, toBase64 } from './engine/matrix';
+import { CONCEPTS, LIST_VERSION } from './engine/relations';
 import type { Choice, Scene } from './engine/scene';
 import { fitTracker, type GateDecision, type TrackerModel } from './engine/tracker';
 import { loadLlmSettings, saveLlmSettings, type LlmSettings } from './llm/config';
@@ -44,9 +47,12 @@ export default function App() {
   const [campOpen, setCampOpen] = useState(false);
   const [save, setSave] = useState<SaveStatus>({ kind: 'idle' });
   const [tracker, setTracker] = useState<TrackerModel | null>(null);
+  const [attention, setAttention] = useState<AttentionModel | null>(null);
   const [modelStatus, setModelStatus] = useState<string | null>(null);
   const [, setModelVersion] = useState(0);
   const sceneToken = useRef(0);
+  // A mastery or struggle save waits until the learner leaves the scene, so the field note goes with it.
+  const pendingSave = useRef<MasteryEvent | null>(null);
   const trainedAt = useRef(-1);
 
   useEffect(() => saveDraft(session), [session]);
@@ -58,8 +64,10 @@ export default function App() {
   useEffect(() => {
     if (typeof Worker === 'undefined') return;
     const worker = new Worker(new URL('./engine/trackerWorker.ts', import.meta.url), { type: 'module' });
-    worker.onmessage = (e: MessageEvent<{ id: number; model: TrackerModel }>) => {
-      if (e.data.id === trainRequest.current) setTracker(e.data.model);
+    worker.onmessage = (e: MessageEvent<{ id: number; model: TrackerModel; attention: AttentionModel }>) => {
+      if (e.data.id !== trainRequest.current) return;
+      setTracker(e.data.model);
+      setAttention(e.data.attention);
     };
     trainer.current = worker;
     return () => {
@@ -74,7 +82,10 @@ export default function App() {
     trainedAt.current = historyLength;
     const id = ++trainRequest.current;
     if (trainer.current) trainer.current.postMessage({ id, history: session.history });
-    else setTracker(fitTracker(session.history));
+    else {
+      setTracker(fitTracker(session.history));
+      setAttention(fitAttention(session.history));
+    }
     // session.history is read when the length changes; the length is the trigger.
   }, [historyLength]);
   useEffect(() => saveLlmSettings(llm), [llm]);
@@ -111,12 +122,19 @@ export default function App() {
 
   const progressOf = useCallback((id: string) => session.progress[id], [session.progress]);
   const backend = activeBackend(llm, backends);
-  const recommended = useMemo(() => recommendChain(progressOf, session.remediation), [progressOf, session.remediation]);
+  // The mastery matrix is recomputed from the history after every answer; the history is
+  // already in the local draft, so the matrix needs no storage of its own until a save.
+  const matrixOf = useCallback((state: SessionState): MasteryMatrix => masteryMatrix(attention, state.history, nowIso()), [attention]);
+  const matrix = useMemo(() => matrixOf(session), [matrixOf, session.history]);
+  const recommended = useMemo(
+    () => recommendChain(progressOf, session.remediation, matrix),
+    [progressOf, session.remediation, matrix],
+  );
 
   const loadScene = useCallback(async (state: SessionState) => {
     if (!state.expedition || state.expedition.status !== 'active') return;
     const token = ++sceneToken.current;
-    const request = buildSceneRequest(state.expedition, (id) => state.progress[id]);
+    const request = buildSceneRequest(state.expedition, (id) => state.progress[id], matrixOf(state));
     setReq(request);
     setScene(null);
     setAnswered(null);
@@ -127,7 +145,7 @@ export default function App() {
     setScene(result.scene);
     setNotice(result.fallbackReason ? `Using the offline story engine for this scene. ${result.fallbackReason}` : null);
     setLoading(false);
-  }, [llm, backends]);
+  }, [llm, backends, matrixOf]);
 
   const start = (chainId: string) => {
     const exp = startExpedition(chainId, { lastKind: session.lastKind, now: nowIso(), rng: Math.random });
@@ -145,6 +163,16 @@ export default function App() {
     setSession(outcome.state);
     setAnswered({ choice, points: outcome.points, risk, gate: outcome.gate });
     if (outcome.campDue) setCampOpen(true);
+    // Reaching mastery or starting to struggle is a save point, as is a manual save.
+    const after = matrixOf(outcome.state);
+    const event = masteryEvent(matrix, after, req.anchor.id);
+    if (event && isCloudConfigured(cloud)) pendingSave.current = event;
+  };
+
+  const flushPendingSave = (state: SessionState) => {
+    const reason = pendingSave.current;
+    pendingSave.current = null;
+    if (reason && isCloudConfigured(cloud)) void pushToCloud(state, reason, matrixOf(state));
   };
 
   const submitNote = async (note: string) => {
@@ -155,6 +183,7 @@ export default function App() {
   };
 
   const proceed = () => {
+    flushPendingSave(session);
     if (session.expedition?.status === 'active') void loadScene(session);
     else {
       setScene(null);
@@ -167,9 +196,13 @@ export default function App() {
     const next = deferCurrentStep(session);
     setSession(next);
     void loadScene(next);
+    // Deferring means the learner is stuck: save that, as the matrix does for a detected struggle.
+    pendingSave.current = 'struggle';
+    flushPendingSave(next);
   };
 
   const abandon = () => {
+    flushPendingSave(session);
     sceneToken.current += 1;
     setSession((s) => ({ ...s, expedition: null }));
     setScene(null);
@@ -185,17 +218,27 @@ export default function App() {
       setSave({ kind: 'saved', message: 'Saved on this device. Add a sync token in Settings to also back it up to the cloud.' });
       return;
     }
+    // A manual save carries everything, the pending mastery or struggle included.
+    const reason = pendingSave.current ?? 'manual';
+    pendingSave.current = null;
+    await pushToCloud(session, reason, matrix);
+  };
+
+  async function pushToCloud(state: SessionState, reason: 'manual' | MasteryEvent, m: MasteryMatrix) {
     const at = nowIso();
-    const payload = buildSavePayload(session, at, newId());
+    const payload = buildSavePayload(state, at, newId(), {
+      packed: toBase64(packMatrix(m)), concepts: CONCEPTS.length, listVersion: LIST_VERSION, reason, updatedAt: at,
+    });
     setSave({ kind: 'saving' });
     try {
       const result = await pushSave(cloud, payload);
       setSession((s) => markSaved(s, payload, at));
-      setSave({ kind: 'saved', message: result.status === 'already_saved' ? 'Already saved.' : `Saved ${payload.terms.length} concepts and ${payload.events.length} scenes.` });
+      const why = reason === 'mastery' ? ' (a concept reached mastery)' : reason === 'struggle' ? ' (a struggle was detected)' : '';
+      setSave({ kind: 'saved', message: result.status === 'already_saved' ? 'Already saved.' : `Saved ${payload.terms.length} concepts and ${payload.events.length} scenes${why}.` });
     } catch (error) {
       setSave({ kind: 'error', message: error instanceof Error ? error.message : 'Save failed.' });
     }
-  };
+  }
 
   const loadFromCloud = async () => {
     try {
@@ -208,6 +251,7 @@ export default function App() {
   };
 
   const endSession = () => {
+    flushPendingSave(session);
     sceneToken.current += 1;
     setSession((s) => newSession(nowIso(), newId(), s));
     setScene(null);
