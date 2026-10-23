@@ -299,10 +299,17 @@ export function SettingsPanel({ llm, onLlm, cloud, onCloud, onLoadCloud, save, h
           Your learning stays in this session (and a local draft) until you press <strong>Save</strong>; then only the
           changes since your last save go to your Cloudflare Worker and its D1 database. See <code>worker/README.md</code> to deploy it.
         </p>
-        <label className="field">Worker URL<input placeholder="https://isaca-quest-sync.<you>.workers.dev" value={cloud.url} onChange={(e) => onCloud({ ...cloud, url: e.target.value })} /></label>
-        <label className="field">Sync token<input type="password" autoComplete="off" value={cloud.token} onChange={(e) => onCloud({ ...cloud, token: e.target.value })} /></label>
-        <p className="small">The token is kept only in this browser's storage and sent as a bearer header.</p>
-        <button onClick={onLoadCloud} disabled={!cloud.url || !cloud.token}>Load progress from cloud</button>
+        {/* A login-shaped form so a password manager can save the token and fill it in on other devices. */}
+        <form onSubmit={(e) => { e.preventDefault(); onLoadCloud(); }}>
+          <input type="text" name="username" autoComplete="username" value="isaca-quest-sync" readOnly hidden />
+          <label className="field">Worker URL<input type="url" name="worker-url" placeholder="https://isaca-quest-sync.<you>.workers.dev" value={cloud.url} onChange={(e) => onCloud({ ...cloud, url: e.target.value })} /></label>
+          <label className="field">Sync token<input type="password" name="password" autoComplete="current-password" value={cloud.token} onChange={(e) => onCloud({ ...cloud, token: e.target.value })} /></label>
+          <p className="small">
+            The token is kept in this browser's storage and sent as a bearer header. Let your password manager save it
+            when you load progress, and it can fill it in on your other devices.
+          </p>
+          <button type="submit" disabled={!cloud.url || !cloud.token}>Load progress from cloud</button>
+        </form>
         {save.message && <p className={`save-msg ${save.kind}`}>{save.message}</p>}
       </section>
     </div>
