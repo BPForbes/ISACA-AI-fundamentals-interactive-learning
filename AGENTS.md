@@ -32,6 +32,13 @@ plus a Cloudflare Worker (`worker/`) that stores progress in D1 and can generate
   expedition) but never decides move-on: that stays with `decideAdvance`. The relation table comes from the guide's
   chains, distinctions and sections, never from model output.
 - Calculation scenes stay on the offline engine so arithmetic is exact.
+- The run (`src/engine/run.ts`, `src/data/upgrades.ts`, `src/data/briefs.ts`) is a game layer that only reads each
+  answer's outcome. An upgrade changes the run's numbers (loss, what a scene costs the meters, credits) and nothing
+  else: never which concept is asked, whether an answer counts, mastery, the matrix, the move-on gate or a scene's
+  text. An upgrade is named after a term in the bank and its card quotes that term's definition from `TERM_BY_ID`,
+  never a copy; its "in this run" line is game text, not exam wording. Briefs and their organisations are fictional.
+- Third-party assets must be MIT (or more permissive) and listed in `THIRD_PARTY_LICENSES.md` with their notice.
+  Icons come from `pixelarticons` through `src/components/PixelIcon.tsx`; add an icon there, not as a loose file.
 
 ## Data and security
 

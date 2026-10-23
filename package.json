@@ -12,6 +12,7 @@
   },
   "dependencies": {
     "@mlc-ai/web-llm": "^0.2.86",
+    "pixelarticons": "^2.4.2",
     "react": "^19.3.1",
     "react-dom": "^19.3.1"
   },

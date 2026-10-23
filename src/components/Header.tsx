@@ -1,7 +1,9 @@
 import type { SaveStatus } from '../App';
 import type { Backend } from '../llm';
+import { RUN_GOAL, type RunState } from '../engine/run';
 import type { SessionStats } from '../session/store';
 import { TARGET_POINTS } from '../session/store';
+import { PixelIcon } from './PixelIcon';
 
 const BACKEND_LABEL: Record<Backend, string> = {
   hosted: 'AI: free hosted model',
@@ -13,6 +15,7 @@ const BACKEND_LABEL: Record<Backend, string> = {
 
 type Props = {
   stats: SessionStats;
+  run: RunState | null;
   backend: Backend;
   modelStatus: string | null;
   unsaved: number;
@@ -23,25 +26,30 @@ type Props = {
   onSave: () => void;
 };
 
-export function Header({ stats, backend, modelStatus, unsaved, cloudReady, save, view, onView, onSave }: Props) {
+export function Header({ stats, run, backend, modelStatus, unsaved, cloudReady, save, view, onView, onSave }: Props) {
   const accuracy = stats.answered ? Math.round((stats.correct / stats.answered) * 100) : 0;
   return (
     <header className="header">
       <div className="brand">
         <span className="brand-mark" aria-hidden="true">◆</span>
         <div>
-          <strong>Lifecycle Expedition</strong>
+          <strong>Training Run</strong>
           <small>ISACA AI Fundamentals · Chapters 1–5</small>
         </div>
       </div>
       <nav className="tabs" aria-label="Sections">
         {(['map', 'journal', 'settings'] as const).map((v) => (
           <button key={v} className={view === v ? 'tab active' : 'tab'} onClick={() => onView(v)} aria-current={view === v}>
-            {v === 'map' ? 'Expedition' : v === 'journal' ? 'Journal' : 'Settings'}
+            {v === 'map' ? 'Run' : v === 'journal' ? 'Journal' : 'Settings'}
           </button>
         ))}
       </nav>
       <div className="hud" aria-label="Session score">
+        {run && (
+          <span className="badge run-badge" title={run.phase === 'over' ? 'This run is over' : 'The model in training, rounds cleared, and credits for the workshop'}>
+            <PixelIcon name="cpu" /> {run.codename} · <PixelIcon name="flag" /> {run.roundsCleared}/{RUN_GOAL} · <PixelIcon name="coins" /> {run.credits}
+          </span>
+        )}
         <span title="Points toward the session target">{stats.points} / {TARGET_POINTS} pts</span>
         <span title="Accuracy this session">{accuracy}% acc</span>
         <span title="Current streak (multiplier is the square root)">🔥 {stats.streak}</span>

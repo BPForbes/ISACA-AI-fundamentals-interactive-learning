@@ -99,7 +99,7 @@ export const chooseSetting = (chain: Chain, lastKind: 'familiar' | 'unfamiliar' 
 
 export const startExpedition = (
   chainId: string,
-  opts: { lastKind: 'familiar' | 'unfamiliar' | null; now: string; rng: () => number; settingId?: string },
+  opts: { lastKind: 'familiar' | 'unfamiliar' | null; now: string; rng: () => number; settingId?: string; meters?: Meters },
 ): Expedition => {
   const chain = CHAIN_BY_ID.get(chainId);
   if (!chain) throw new Error(`Unknown expedition ${chainId}`);
@@ -112,7 +112,7 @@ export const startExpedition = (
     missesOnStep: 0,
     confirmationsOnStep: 0,
     lastOnStepCorrect: false,
-    meters: { trust: 60, budget: 70, risk: 30 },
+    meters: opts.meters ? { ...opts.meters } : { trust: 60, budget: 70, risk: 30 },
     log: [],
     status: 'active',
     startedAt: opts.now,
@@ -213,12 +213,20 @@ export const buildSceneRequest = (
  * move-on gate (rules, plus the progress model once trusted) says `advance`;
  * otherwise the link is confirmed once more from a new angle.
  */
-export const applyDecision = (exp: Expedition, beat: Omit<StoryBeat, 'stepIndex'>, advance = beat.correct): Expedition => {
+export type MeterCosts = { missTrust: number; missBudget: number; missRisk: number; correctBudget: number };
+export const DEFAULT_COSTS: MeterCosts = { missTrust: 10, missBudget: 8, missRisk: 10, correctBudget: 2 };
+
+export const applyDecision = (
+  exp: Expedition,
+  beat: Omit<StoryBeat, 'stepIndex'>,
+  advance = beat.correct,
+  costs: MeterCosts = DEFAULT_COSTS,
+): Expedition => {
   const chain = CHAIN_BY_ID.get(exp.chainId)!;
   const m = exp.meters;
   const meters: Meters = beat.correct
-    ? { trust: clamp(m.trust + 8), budget: clamp(m.budget - 2), risk: clamp(m.risk - 6) }
-    : { trust: clamp(m.trust - 10), budget: clamp(m.budget - 8), risk: clamp(m.risk + 10) };
+    ? { trust: clamp(m.trust + 8), budget: clamp(m.budget - costs.correctBudget), risk: clamp(m.risk - 6) }
+    : { trust: clamp(m.trust - costs.missTrust), budget: clamp(m.budget - costs.missBudget), risk: clamp(m.risk + costs.missRisk) };
   const log = [...exp.log, { ...beat, stepIndex: exp.stepIndex }];
   if (!beat.correct) return { ...exp, meters, log, missesOnStep: exp.missesOnStep + 1, lastOnStepCorrect: false };
   if (!advance) {

@@ -1,20 +1,27 @@
 import { CHAINS } from '../data/chains';
 import { CHAPTERS, TERM_BY_ID, termsInChapter, type ChapterId } from '../data/terms';
 import { levelOf } from '../engine/progress';
+import { roundTarget, type RunState } from '../engine/run';
 import type { Backend } from '../llm';
 import type { SessionState } from '../session/store';
+import { PixelIcon } from './PixelIcon';
+import { RunOver, Workshop } from './Workshop';
 
 type Props = {
   session: SessionState;
   recommendedId: string;
   backend: Backend;
+  run: RunState | null;
   onStart: (chainId: string) => void;
+  onBuy: (id: string) => void;
+  onNewRun: () => void;
   onSettings: () => void;
 };
 
 const LEVEL_SCORE: Record<string, number> = { Unknown: 0, Familiar: 0.35, Competent: 0.65, Proficient: 0.9, Mastered: 1 };
 
-export function MapView({ session, recommendedId, backend, onStart, onSettings }: Props) {
+export function MapView({ session, recommendedId, backend, run, onStart, onBuy, onNewRun, onSettings }: Props) {
+  const over = run?.phase === 'over';
   const chapterMastery = (c: ChapterId) => {
     const terms = termsInChapter(c);
     const total = terms.reduce((sum, t) => {
@@ -26,10 +33,12 @@ export function MapView({ session, recommendedId, backend, onStart, onSettings }
 
   return (
     <div className="map">
+      {run && !over && <Workshop run={run} onBuy={onBuy} />}
+      {run && over && <RunOver run={run} onNewRun={onNewRun} />}
       <section className="intro card">
-        <h1>Five regions, one lifecycle.</h1>
+        <h2>Five regions, one lifecycle.</h2>
         <p>
-          Every expedition follows one integration chain through the chapters: you advise a team, your calls have
+          Every training round follows one integration chain through the chapters: you advise a team, your calls have
           consequences, and the story only moves on once the concept at each link holds up. Stake confidence on each
           decision; your streak multiplies the points.
         </p>
@@ -65,13 +74,19 @@ export function MapView({ session, recommendedId, backend, onStart, onSettings }
       )}
 
       <section aria-label="Expeditions">
-        <h2>Choose an expedition</h2>
+        <h2>{over ? 'Expeditions' : 'Choose the next training set'}</h2>
+        {over && <p className="hint">Start a new run above to train again.</p>}
         <div className="chains">
           {CHAINS.map((chain) => (
             <article key={chain.id} className={chain.id === recommendedId ? 'chain card recommended' : 'chain card'}>
               {chain.id === recommendedId && <span className="ribbon">Recommended</span>}
               <h3>{chain.title}</h3>
               <p className="path">{chain.path}</p>
+              {run && !over && (
+                <p className="small target-line">
+                  <PixelIcon name="target" /> Training target: loss ≤ <span className="mono">{roundTarget(run.roundsCleared, chain.steps.length).toFixed(2)}</span> over {chain.steps.length} links
+                </p>
+              )}
               <ol className="links">
                 {chain.steps.map((s, i) => {
                   const p = session.progress[s.anchor];
@@ -83,7 +98,7 @@ export function MapView({ session, recommendedId, backend, onStart, onSettings }
                   );
                 })}
               </ol>
-              <button className="primary" onClick={() => onStart(chain.id)}>Set out</button>
+              <button className="primary" onClick={() => onStart(chain.id)} disabled={over}><PixelIcon name="zap" /> Train on this chain</button>
             </article>
           ))}
         </div>

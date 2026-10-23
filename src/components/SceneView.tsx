@@ -5,11 +5,14 @@ import { CHAPTERS, TERM_BY_ID } from '../data/terms';
 import type { Expedition, SceneRequest } from '../engine/director';
 import { levelOf, STAGE_NAMES, type TermProgress } from '../engine/progress';
 import { MODE_LABELS, type Choice, type Scene } from '../engine/scene';
+import type { RunState } from '../engine/run';
 import { RISK_STEPS, suggestedRisk } from '../engine/scoring';
 import type { NoteVerdict } from '../llm';
+import { TrainingHud } from './TrainingHud';
 
 type Props = {
   expedition: Expedition;
+  run: RunState | null;
   chain: Chain;
   req: SceneRequest | null;
   scene: Scene | null;
@@ -40,7 +43,7 @@ function Meter({ label, value, invert }: { label: string; value: number; invert?
 }
 
 export function SceneView(props: Props) {
-  const { expedition, chain, req, scene, loading, notice, answered, verdict, progress } = props;
+  const { expedition, run, chain, req, scene, loading, notice, answered, verdict, progress } = props;
   const level = progress ? levelOf(progress) : 'Unknown';
   const [lo, hi] = suggestedRisk(level);
   const [risk, setRisk] = useState(1);
@@ -61,6 +64,7 @@ export function SceneView(props: Props) {
   return (
     <div className="scene-layout">
       <aside className="scene-side card">
+        {run?.round && <TrainingHud run={run} />}
         <h2>{chain.title}</h2>
         <p className="path">{chain.path}</p>
         <ol className="links progress-links">
@@ -77,7 +81,9 @@ export function SceneView(props: Props) {
         <Meter label="Budget" value={expedition.meters.budget} />
         <Meter label="Risk exposure" value={expedition.meters.risk} invert />
         <p className="cue"><strong>Exam cue:</strong> {chain.cue}</p>
-        <button className="ghost" onClick={props.onLeave}>Return to map</button>
+        <button className="ghost" onClick={props.onLeave} title={run?.round && expedition.status === 'active' ? 'Leaving before the chain completes fails the round' : undefined}>
+          {run?.round && expedition.status === 'active' ? 'Abandon the round' : 'Return to the workshop'}
+        </button>
       </aside>
 
       <section className="scene card" aria-live="polite">

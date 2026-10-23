@@ -1,9 +1,10 @@
 import { describe, expect, it } from 'vitest';
 import { buildSceneRequest, startExpedition } from '../../engine/director';
 import { generateOfflineScene } from '../../engine/offline';
+import { newRun, RUN_GOAL, START_CREDITS } from '../../engine/run';
 import {
-  answerScene, applyRemote, beginExpedition, buildSavePayload, buildStudyContext, CAMP_INTERVAL, deferCurrentStep,
-  hasUnsavedChanges, markSaved, newSession, recordNote, type SessionState,
+  answerScene, applyRemote, beginExpedition, buildSavePayload, buildStudyContext, buyRunUpgrade, CAMP_INTERVAL, concludeRound,
+  deferCurrentStep, ensureRun, hasUnsavedChanges, markSaved, newSession, recordNote, startNewRun, type SessionState,
 } from '../store';
 
 let clock = 0;
@@ -136,5 +137,71 @@ describe('session store', () => {
     expect(next.stats.answered).toBe(0);
     expect(next.progress).toBe(s.progress);
     expect(next.events).toHaveLength(1);
+  });
+});
+
+describe('the run inside a session', () => {
+  const withRun = () => ensureRun(fresh(), tick(), 'run-1', 5);
+
+  it('starts one run, keeps it across sessions, and replaces only a finished one', () => {
+    const s = withRun();
+    expect(s.run?.phase).toBe('workshop');
+    expect(ensureRun(s, tick(), 'run-2', 6).run).toBe(s.run);
+    expect(newSession(tick(), 'next', s).run).toBe(s.run);
+    const over = { ...s, run: { ...s.run!, phase: 'over' as const } };
+    expect(ensureRun(over, tick(), 'run-3', 7).run?.id).toBe('run-3');
+    expect(startNewRun(s, tick(), 'run-4', 8).run?.id).toBe('run-4');
+    expect(fresh().run).toBeNull();
+  });
+
+  it('treats an expedition as a training round and never lets the run touch mastery', () => {
+    const plain = fresh();
+    const s = withRun();
+    const expedition = (state: SessionState) => beginExpedition(state, startExpedition('indicators', { lastKind: null, now: tick(), rng, meters: state.run?.meters }));
+    let a = expedition(plain);
+    let b = expedition(s);
+    expect(b.run?.phase).toBe('training');
+    expect(b.run?.round?.chainId).toBe('indicators');
+    for (const correct of [true, false, true, true]) {
+      a = play(a, correct).state;
+      b = play(b, correct).state;
+    }
+    expect(b.run?.round?.steps.map((x) => x.correct)).toEqual([true, false, true, true]);
+    expect(b.run?.round?.loss).toBeLessThan(1);
+    // Same answers, same learning: progress, remediation and history do not depend on the run.
+    const learned = (state: SessionState) => Object.values(state.progress).map(({ lastSeen, updatedAt, ...rest }) => rest);
+    expect(learned(b)).toEqual(learned(a));
+    expect(b.remediation).toEqual(a.remediation);
+    expect(b.history.map((e) => [e.concept, e.correct])).toEqual(a.history.map((e) => [e.concept, e.correct]));
+    expect(b.expedition!.stepIndex).toBe(a.expedition!.stepIndex);
+  });
+
+  it('closes the round when the learner leaves, failed if the chain was not completed', () => {
+    let s = beginExpedition(withRun(), startExpedition('indicators', { lastKind: null, now: tick(), rng }));
+    s = play(s, true).state;
+    const left = concludeRound(s);
+    expect(left.expedition).toBeNull();
+    expect(left.run?.phase).toBe('workshop');
+    expect(left.run?.roundsFailed).toBe(1);
+    expect(left.run?.lastReport?.cleared).toBe(false);
+    expect(concludeRound(left)).toBe(left);
+  });
+
+  it('clears a round when the chain completes under the target, and carries the meters on', () => {
+    let s = beginExpedition(withRun(), startExpedition('indicators', { lastKind: null, now: tick(), rng, meters: withRun().run!.meters }));
+    while (s.expedition!.status === 'active') s = play(s, true).state;
+    const done = concludeRound(s);
+    expect(done.run?.roundsCleared).toBe(1);
+    expect(done.run?.credits).toBe(START_CREDITS + 3);
+    expect(done.run?.meters.budget).toBeGreaterThan(withRun().run!.meters.budget);
+    expect(done.run?.roundsCleared).toBeLessThan(RUN_GOAL);
+  });
+
+  it('spends credits on an offered upgrade and lets a run with none alone', () => {
+    const s = { ...withRun(), run: { ...withRun().run!, credits: 5 } };
+    const bought = buyRunUpgrade(s, s.run.offer[0]);
+    expect(Object.values(bought.run!.upgrades)).toEqual([1]);
+    expect(buyRunUpgrade(fresh(), 'depth').run).toBeNull();
+    expect(newRun(tick(), 'x', 1).upgrades).toEqual({});
   });
 });

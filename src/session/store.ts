@@ -7,6 +7,7 @@
 import { CHAIN_BY_ID } from '../data/chains';
 import { TERM_BY_ID } from '../data/terms';
 import { applyDecision, deferStep, type Expedition, type SceneRequest } from '../engine/director';
+import { beginRound, buyUpgrade, effectsOf, finishRound, newRun, trainingStep, type RunState } from '../engine/run';
 import { creditExplanation, levelOf, mergeProgress, newProgress, recordAnswer, STAGE_NAMES, type TermProgress } from '../engine/progress';
 import { scoreAnswer } from '../engine/scoring';
 import { decideAdvance, type GateDecision, type HistoryEvent, type TrackerModel } from '../engine/tracker';
@@ -42,6 +43,8 @@ export type SessionState = {
   notes: { anchor: string; note: string; verdict: string }[];
   // Every answer ever given, kept locally (and restored from the cloud) to train the progress model.
   history: HistoryEvent[];
+  // The roguelike run: the model being trained, its upgrades and the team meters. Kept on this device only.
+  run: RunState | null;
 };
 
 export const HISTORY_CAP = 5000;
@@ -66,7 +69,18 @@ export const newSession = (now: string, id: string, carry?: SessionState): Sessi
   sinceCamp: 0,
   notes: [],
   history: carry?.history ?? [],
+  run: carry?.run ?? null,
 });
+
+/** Starts a run if the session has none; the first visit and every "new run" come through here. */
+export const ensureRun = (s: SessionState, now: string, id: string, seed: number): SessionState =>
+  s.run && s.run.phase !== 'over' ? s : { ...s, run: newRun(now, id, seed) };
+
+export const startNewRun = (s: SessionState, now: string, id: string, seed: number): SessionState =>
+  ({ ...s, expedition: null, run: newRun(now, id, seed) });
+
+export const buyRunUpgrade = (s: SessionState, id: string): SessionState =>
+  s.run ? { ...s, run: buyUpgrade(s.run, id) } : s;
 
 const addUnique = (list: string[], item: string) => (list.includes(item) ? list : [...list, item]);
 
@@ -74,7 +88,21 @@ export const beginExpedition = (s: SessionState, exp: Expedition): SessionState 
   ...s,
   expedition: exp,
   stats: { ...s.stats, expeditions: addUnique(s.stats.expeditions, exp.chainId) },
+  // The expedition is one training round of the run.
+  run: s.run ? beginRound(s.run, exp.chainId) : null,
 });
+
+/**
+ * Ends the round when the learner leaves the expedition: cleared if the chain
+ * completed under the target, failed otherwise (leaving early counts as failed).
+ * The run keeps the expedition's final meters.
+ */
+export const concludeRound = (s: SessionState): SessionState => {
+  const exp = s.expedition;
+  if (!exp) return s;
+  const run = s.run ? finishRound(s.run, exp.meters, { abandoned: exp.status !== 'complete' }) : null;
+  return { ...s, expedition: null, run };
+};
 
 export type AnswerInput = {
   req: SceneRequest;
@@ -154,13 +182,16 @@ export const answerScene = (s: SessionState, a: AnswerInput): AnswerOutcome => {
     conceptHistory: history.filter((e) => e.concept === anchorId),
   });
 
+  // The run only reads the answer: the loss moves, and upgrades set what a scene costs the team.
+  const fx = effectsOf(s.run?.upgrades ?? {});
+  const run = s.run ? trainingStep(s.run, { correct: a.choice.correct, fixingMiss: exp.missesOnStep > 0 && !exp.lastOnStepCorrect }) : null;
   const expedition = applyDecision(exp, {
     anchor: anchorId,
     choice: a.choice.text,
     correct: a.choice.correct,
     consequence: a.choice.consequence,
     situation: a.req.situation.id,
-  }, gate.advance);
+  }, gate.advance, { missTrust: fx.missTrust, missBudget: fx.missBudget, missRisk: fx.missRisk, correctBudget: fx.correctBudget });
 
   const sinceCamp = s.sinceCamp + 1;
   return {
@@ -178,6 +209,7 @@ export const answerScene = (s: SessionState, a: AnswerInput): AnswerOutcome => {
       lastKind: expedition.status === 'complete' ? a.req.setting.kind : s.lastKind,
       sinceCamp,
       history,
+      run,
     },
   };
 };
@@ -274,8 +306,8 @@ export const loadDraft = (): SessionState | null => {
     if (!raw) return null;
     const parsed = JSON.parse(raw) as SessionState;
     if (parsed.version !== 1 || !parsed.progress || !parsed.stats) return null;
-    // Drafts written before the progress model existed have no history yet.
-    return { ...parsed, history: parsed.history ?? [] };
+    // Drafts written before the progress model or the run existed lack those fields.
+    return { ...parsed, history: parsed.history ?? [], run: parsed.run ?? null };
   } catch {
     return null;
   }

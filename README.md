@@ -106,6 +106,30 @@ flowchart LR
 > second model call. It borrows the generator-versus-discriminator structure, not the training. Calculation scenes
 > always use the template so the arithmetic is exact.
 
+## The run: a roguelike around the expeditions
+
+Studying is framed as a **run**: one attempt to train a model for a fictional brief ("sort 40,000 unlabelled survey
+photographs", "predict which passes will ice over"). The model gets a codename and starts as a bare network.
+
+- **A round is one expedition.** Every decision in it is a training step: a correct answer removes a share of the
+  model's loss, a miss adds to it. The round's goal is a loss at or under the target when the chain completes; the
+  target tightens with every round cleared. The scene panel shows the loss, its curve, and how many correct answers
+  in a row would reach the target.
+- **The workshop between rounds** offers three upgrades for the credits a cleared round earns. Each upgrade is a
+  Chapter 4 or 5 term (learning rate, depth, regularization, normalization, pre-trained model, fine-tuning, optimizer,
+  attention, data augmentation, human oversight, model compression, audit trail): its card quotes the exam definition
+  and, separately, what it does in the run. Depth is a trade-off: a deeper network learns faster and overfits harder.
+  The network diagram grows with what you buy.
+- **The team meters carry over.** Trust, budget and risk persist from round to round. A cleared round renews funding;
+  a failed or abandoned one brings a governance review. The run ends when the budget is spent or risk reaches 100,
+  and the model **ships** after six cleared rounds.
+- **What you learned is kept.** Mastery, the rematch queue, the progress models and the mastery matrix belong to you,
+  not to the run; a new run starts with a bare network and the same knowledge. Upgrades change only the run's
+  numbers: never which concept is asked, whether an answer counts, mastery, or when the story moves on.
+
+The icons are [pixelarticons](https://github.com/halfmage/pixelarticons) (MIT); see
+[`THIRD_PARTY_LICENSES.md`](THIRD_PARTY_LICENSES.md).
+
 ## Knowing when to move on: rules + LSTM
 
 After each answer the game decides whether to move to the next step or confirm this one from a new angle. This is
@@ -141,6 +165,7 @@ with. The mastery rules still decide when you move on.
 
 ## Saving your progress
 
+The run itself (network, credits, meters) lives in this browser's draft and is not sent to the cloud; learning is.
 Your learning stays in the current session (with a local draft, so a reload loses nothing) until a save: when you
 press **Save**, and automatically, once the cloud is set up, when a concept reaches mastery or a struggle is detected
 (including deferring a stuck link). The automatic save is sent as you leave that scene, so your field note goes too. A save sends only what changed — the concepts you touched, the scenes you played,
@@ -159,8 +184,8 @@ npm run build    # typecheck and production build
 
 | Area | Location |
 | --- | --- |
-| Term bank, chains, distinctions, story settings, scene situations | [`src/data/`](src/data) |
-| Mastery, scoring, director, templates, discriminator, LSTM and attention trackers, relation table, packed matrix | [`src/engine/`](src/engine) |
+| Term bank, chains, distinctions, story settings, scene situations, run briefs and the upgrade catalogue | [`src/data/`](src/data) |
+| Mastery, scoring, director, templates, discriminator, LSTM and attention trackers, relation table, packed matrix, the run (`run.ts`) | [`src/engine/`](src/engine) |
 | Hosted, in-browser, Ollama and Workers AI backends; the generate–discriminate loop | [`src/llm/`](src/llm) |
 | Session state, dirty tracking, study-context export | [`src/session/`](src/session) |
 | Cloud client and the Cloudflare Worker + D1 migration | [`src/sync/`](src/sync), [`worker/`](worker) |

@@ -11,8 +11,8 @@ import { activeBackend, evaluateNote, generateScene, type NoteVerdict } from './
 import { loadHostedConfig, saveHostedConfig, type HostedConfig } from './llm/hosted';
 import { onBrowserModelChange, restoreCachedBrowserModel } from './llm/webllm';
 import {
-  answerScene, applyRemote, beginExpedition, buildSavePayload, deferCurrentStep, hasUnsavedChanges,
-  leaveCamp, loadDraft, markSaved, newSession, recordNote, saveDraft, type SessionState,
+  answerScene, applyRemote, beginExpedition, buildSavePayload, buyRunUpgrade, concludeRound, deferCurrentStep, ensureRun,
+  hasUnsavedChanges, leaveCamp, loadDraft, markSaved, newSession, recordNote, saveDraft, startNewRun, type SessionState,
 } from './session/store';
 import { isCloudConfigured, loadCloudConfig, pullProgress, pushSave, saveCloudConfig, type CloudConfig } from './sync/cloud';
 import { Camp } from './components/Camp';
@@ -25,6 +25,7 @@ import { ExpeditionEnd } from './components/ExpeditionEnd';
 
 const nowIso = () => new Date().toISOString();
 const newId = () => (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
+const newSeed = () => Math.floor(Math.random() * 2 ** 31);
 
 type View = 'map' | 'journal' | 'settings';
 
@@ -33,7 +34,8 @@ export type Answered = { choice: Choice; points: number; risk: number; gate: Gat
 export type SaveStatus = { kind: 'idle' | 'saving' | 'saved' | 'error'; message?: string };
 
 export default function App() {
-  const [session, setSession] = useState<SessionState>(() => loadDraft() ?? newSession(nowIso(), newId()));
+  // A run is always in progress: the first visit starts one, and a finished run is replaced on request.
+  const [session, setSession] = useState<SessionState>(() => ensureRun(loadDraft() ?? newSession(nowIso(), newId()), nowIso(), newId(), newSeed()));
   const [llm, setLlm] = useState<LlmSettings>(loadLlmSettings);
   const [cloud, setCloud] = useState<CloudConfig>(loadCloudConfig);
   const [hosted, setHosted] = useState<HostedConfig>(loadHostedConfig);
@@ -148,7 +150,9 @@ export default function App() {
   }, [llm, backends, matrixOf]);
 
   const start = (chainId: string) => {
-    const exp = startExpedition(chainId, { lastKind: session.lastKind, now: nowIso(), rng: Math.random });
+    if (session.run?.phase === 'over') return;
+    // The team meters carry over from the run's earlier rounds.
+    const exp = startExpedition(chainId, { lastKind: session.lastKind, now: nowIso(), rng: Math.random, meters: session.run?.meters });
     const next = beginExpedition(session, exp);
     setSession(next);
     setView('map');
@@ -201,10 +205,11 @@ export default function App() {
     flushPendingSave(next);
   };
 
+  // Leaving the expedition closes the round: cleared if the chain completed under the target, failed otherwise.
   const abandon = () => {
     flushPendingSave(session);
     sceneToken.current += 1;
-    setSession((s) => ({ ...s, expedition: null }));
+    setSession((s) => concludeRound(s));
     setScene(null);
     setReq(null);
     setAnswered(null);
@@ -250,6 +255,9 @@ export default function App() {
     }
   };
 
+  const buy = (id: string) => setSession((s) => buyRunUpgrade(s, id));
+  const newRun = () => setSession((s) => startNewRun(s, nowIso(), newId(), newSeed()));
+
   const endSession = () => {
     flushPendingSave(session);
     sceneToken.current += 1;
@@ -267,6 +275,7 @@ export default function App() {
     <div className="app">
       <Header
         stats={session.stats}
+        run={session.run}
         backend={backend}
         modelStatus={modelStatus}
         unsaved={session.dirty.length + session.events.length}
@@ -293,14 +302,15 @@ export default function App() {
           <Journal session={session} tracker={tracker} onEndSession={endSession} onSave={saveToCloud} cloudReady={isCloudConfigured(cloud)} />
         )}
         {view === 'map' && !exp && (
-          <MapView session={session} recommendedId={recommended.id} onStart={start} backend={backend} onSettings={() => setView('settings')} />
+          <MapView session={session} recommendedId={recommended.id} run={session.run} onStart={start} onBuy={buy} onNewRun={newRun} backend={backend} onSettings={() => setView('settings')} />
         )}
         {inExpedition && exp.status === 'complete' && !answered && (
-          <ExpeditionEnd expedition={exp} onDone={abandon} />
+          <ExpeditionEnd expedition={exp} run={session.run} onDone={abandon} />
         )}
         {inExpedition && (exp.status === 'active' || answered) && (
           <SceneView
             expedition={exp}
+            run={session.run}
             chain={CHAIN_BY_ID.get(exp.chainId)!}
             req={req}
             scene={scene}
