@@ -48,13 +48,14 @@ export function Header({ stats, backend, modelStatus, unsaved, cloudReady, save,
         <span className={`badge backend-${backend}`} title={modelStatus ?? undefined}>
           {modelStatus ? 'Loading cached model…' : BACKEND_LABEL[backend]}
         </span>
+        {/* Without cloud sync, learning is kept on this device after every answer; the count is what the cloud lacks. */}
         <button
-          className={unsaved > 0 ? 'save-btn pending' : 'save-btn'}
+          className={cloudReady && unsaved > 0 ? 'save-btn pending' : 'save-btn'}
           onClick={onSave}
           disabled={save.kind === 'saving'}
-          title={cloudReady ? 'Send this session\'s learning to the cloud' : 'Configure cloud sync in Settings'}
+          title={cloudReady ? 'Send this session\'s learning to the cloud' : 'Saved on this device after every answer. Add a sync token in Settings to back it up to the cloud.'}
         >
-          {save.kind === 'saving' ? 'Saving…' : unsaved > 0 ? `Save (${unsaved})` : 'Saved'}
+          {save.kind === 'saving' ? 'Saving…' : !cloudReady ? 'Save' : unsaved > 0 ? `Save (${unsaved})` : 'Saved'}
         </button>
       </div>
       {save.message && save.kind !== 'idle' && (

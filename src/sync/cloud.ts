@@ -13,7 +13,8 @@ export const loadCloudConfig = (): CloudConfig => {
     const raw = localStorage.getItem(STORAGE_KEY);
     const p = raw ? (JSON.parse(raw) as Partial<CloudConfig>) : {};
     return {
-      url: typeof p.url === 'string' ? p.url : (import.meta.env.VITE_SYNC_URL ?? ''),
+      // An empty saved URL falls back to the built-in one.
+      url: typeof p.url === 'string' && p.url ? p.url : (import.meta.env.VITE_SYNC_URL ?? ''),
       token: typeof p.token === 'string' ? p.token : '',
     };
   } catch {
@@ -24,6 +25,8 @@ export const loadCloudConfig = (): CloudConfig => {
 export const saveCloudConfig = (c: CloudConfig) => {
   try {
     localStorage.setItem(STORAGE_KEY, JSON.stringify({ url: c.url.trim().replace(/\/+$/, ''), token: c.token.trim() }));
+    // Ask the browser not to clear this site's storage on its own, so the settings stay.
+    if (c.token) void navigator.storage?.persist?.()?.catch(() => {});
   } catch {
     // Without storage the config lasts for the tab only.
   }

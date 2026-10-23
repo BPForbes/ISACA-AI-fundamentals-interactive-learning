@@ -26,6 +26,9 @@ jobs:
       - run: npm test
       - run: npx tsc -p worker/tsconfig.json
       - run: npm run build
+        env:
+          # Prefilled Worker URL; not a secret. The sync token is never built in.
+          VITE_SYNC_URL: https://isaca-quest-sync.dx8tsbf5gq.workers.dev
       - if: github.event_name != 'pull_request'
         uses: actions/upload-pages-artifact@v5
         with:

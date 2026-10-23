@@ -7,15 +7,16 @@ compatibility_date = "2026-10-01"
 workers_dev = true
 
 [vars]
-# Comma-separated origins allowed to call the API (the GitHub Pages site and local dev).
-ALLOWED_ORIGINS = "https://bpforbes.github.io,http://localhost:5173"
+# Comma-separated origins allowed to call the API: the GitHub Pages site, the Cloudflare
+# Pages copy and its pull-request previews (`https://*.` admits one subdomain label), and local dev.
+ALLOWED_ORIGINS = "https://bpforbes.github.io,https://isaca-ai-fundamentals-interactive-learning.pages.dev,https://*.isaca-ai-fundamentals-interactive-learning.pages.dev,http://localhost:5173"
 AI_MODEL = "@cf/meta/llama-3.1-8b-instruct"
 
 [[d1_databases]]
 binding = "DB"
 database_name = "isaca-quest"
 # Replace with the id printed by `wrangler d1 create isaca-quest`.
-database_id = "00000000-0000-0000-0000-000000000000"
+database_id = "e80cb936-734f-48bc-aad8-d5e62b4b6fda"
 migrations_dir = "migrations"
 
 # Remove this block to turn off cloud scene generation.

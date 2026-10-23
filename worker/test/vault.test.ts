@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import worker, { sha256Hex, type Env } from '../src/index';
+import { fileURLToPath } from 'node:url';
 import { createFakeD1 } from './fakeD1';
 
 const TOKEN = `tok-${Math.random().toString(36).slice(2)}`;
@@ -12,7 +13,7 @@ let env: Env;
 let fake: ReturnType<typeof createFakeD1>;
 
 beforeEach(async () => {
-  fake = createFakeD1(new URL('../migrations', import.meta.url).pathname);
+  fake = createFakeD1(fileURLToPath(new URL('../migrations', import.meta.url)));
   env = {
     DB: fake.d1 as unknown as D1Database,
     SYNC_TOKEN_SHA256: await sha256Hex(TOKEN),

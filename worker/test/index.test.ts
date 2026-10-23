@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import worker, { sha256Hex, type Env } from '../src/index';
+import { fileURLToPath } from 'node:url';
 import { createFakeD1 } from './fakeD1';
 
 const TOKEN = `tok-${Math.random().toString(36).slice(2)}`;
@@ -8,7 +9,7 @@ let env: Env;
 let fake: ReturnType<typeof createFakeD1>;
 
 beforeEach(async () => {
-  fake = createFakeD1(new URL('../migrations', import.meta.url).pathname);
+  fake = createFakeD1(fileURLToPath(new URL('../migrations', import.meta.url)));
   env = {
     DB: fake.d1 as unknown as D1Database,
     SYNC_TOKEN_SHA256: await sha256Hex(TOKEN),
@@ -66,6 +67,19 @@ describe('auth and CORS', () => {
     const pre = await call('/api/save', { method: 'OPTIONS', token: null });
     expect(pre.status).toBe(204);
     expect(pre.headers.get('Access-Control-Allow-Headers')).toContain('Authorization');
+  });
+
+  it('admits one subdomain label under a wildcard entry, and never a shared host', async () => {
+    env.ALLOWED_ORIGINS = `${ORIGIN},https://*.quest.pages.dev,https://*.pages.dev`;
+    const status = async (origin: string) => (await call('/api/progress', { origin })).status;
+    expect(await status('https://a1b2c3d4.quest.pages.dev')).toBe(200);
+    expect(await status('https://my-branch.quest.pages.dev')).toBe(200);
+    expect(await status('https://quest.pages.dev')).toBe(403);
+    expect(await status('https://a.b.quest.pages.dev')).toBe(403);
+    expect(await status('http://a1b2c3d4.quest.pages.dev')).toBe(403);
+    expect(await status('https://a1b2c3d4.quest.pages.dev:8443')).toBe(403);
+    expect(await status('https://evilquest.pages.dev')).toBe(403);
+    expect(await status('https://someone-else.pages.dev')).toBe(403);
   });
 
   it('answers unknown routes with 404', async () => {

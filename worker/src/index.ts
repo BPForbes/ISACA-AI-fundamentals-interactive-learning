@@ -32,8 +32,27 @@ const DEFAULT_MODEL = '@cf/meta/llama-3.1-8b-instruct';
 const allowedOrigins = (env: Env) =>
   (env.ALLOWED_ORIGINS ?? '').split(',').map((o) => o.trim()).filter(Boolean);
 
+// Hosts shared by every customer: a wildcard directly under one would admit anyone's site.
+const SHARED_HOSTS = new Set(['pages.dev', 'workers.dev', 'github.io']);
+const WILDCARD = /^https:\/\/\*\.((?:[a-z0-9-]+\.)+[a-z0-9-]+)$/;
+const LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
+
+/**
+ * An entry is an exact origin, or `https://*.<host>`, which admits one subdomain
+ * label under <host> (Cloudflare Pages previews: https://<id>.<project>.pages.dev).
+ */
+const originAllowed = (origin: string, entries: string[]): boolean =>
+  entries.some((entry) => {
+    if (!entry.includes('*')) return entry === origin;
+    const m = WILDCARD.exec(entry);
+    if (!m || SHARED_HOSTS.has(m[1])) return false;
+    const suffix = `.${m[1]}`;
+    if (!origin.startsWith('https://') || !origin.endsWith(suffix)) return false;
+    return LABEL.test(origin.slice('https://'.length, -suffix.length));
+  });
+
 const corsHeaders = (origin: string | null, env: Env): Record<string, string> =>
-  origin && allowedOrigins(env).includes(origin)
+  origin && originAllowed(origin, allowedOrigins(env))
     ? {
       'Access-Control-Allow-Origin': origin,
       'Access-Control-Allow-Methods': 'GET, POST, PUT, DELETE, OPTIONS',
@@ -246,7 +265,7 @@ export default {
     const cors = corsHeaders(origin, env);
     const url = new URL(request.url);
 
-    if (origin && !allowedOrigins(env).includes(origin)) return json({ error: 'Origin not allowed.' }, 403, cors);
+    if (origin && !originAllowed(origin, allowedOrigins(env))) return json({ error: 'Origin not allowed.' }, 403, cors);
     if (request.method === 'OPTIONS') return new Response(null, { status: 204, headers: cors });
 
     try {
