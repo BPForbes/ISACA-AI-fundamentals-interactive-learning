@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import { buildSceneRequest, startExpedition } from '../../engine/director';
 import { generateOfflineScene } from '../../engine/offline';
 import { newRun, RUN_GOAL, START_CREDITS } from '../../engine/run';
+import { answerChallenge } from '../store';
 import {
   answerScene, applyRemote, beginExpedition, buildSavePayload, buildStudyContext, buyRunUpgrade, CAMP_INTERVAL, concludeRound,
   deferCurrentStep, ensureRun, hasUnsavedChanges, markSaved, newSession, recordNote, startNewRun, type SessionState,
@@ -203,5 +204,23 @@ describe('the run inside a session', () => {
     expect(Object.values(bought.run!.upgrades)).toEqual([1]);
     expect(buyRunUpgrade(fresh(), 'depth').run).toBeNull();
     expect(newRun(tick(), 'x', 1).upgrades).toEqual({});
+  });
+});
+
+describe('a lab submission', () => {
+  it('is recorded like a scene answer: progress, remediation, history, the run and the story beat', () => {
+    const s = fresh();
+    const req = buildSceneRequest(s.expedition!, (id) => s.progress[id]);
+    const miss = answerChallenge(s, { req, correct: false, readout: 'validation loss 0.61', now: tick(), eventId: 'lab-1', model: null });
+    expect(miss.gate.advance).toBe(false);
+    expect(miss.state.progress[req.anchor.id].attempts).toBe(1);
+    expect(miss.state.remediation).toEqual([req.anchor.id]);
+    expect(miss.state.events[0]).toMatchObject({ id: 'lab-1', mode: 'lab', source: 'offline', correct: false, risk: 1, note: 'validation loss 0.61' });
+    expect(miss.state.history[0]).toMatchObject({ concept: req.anchor.id, correct: false, mode: 'lab' });
+    expect(miss.state.expedition!.log[0]).toMatchObject({ correct: false, choice: 'validation loss 0.61', consequence: 'The lab reported: validation loss 0.61.' });
+    const hit = answerChallenge(miss.state, { req, correct: true, readout: 'validation loss 0.31', now: tick(), eventId: 'lab-2', model: null });
+    expect(hit.points).toBeGreaterThan(0);
+    expect(hit.state.progress[req.anchor.id].correct).toBe(1);
+    expect(hit.state.stats.modesUsed).toEqual(['lab']);
   });
 });

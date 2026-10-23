@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CHAIN_BY_ID } from './data/chains';
-import { buildSceneRequest, DEFER_AFTER_MISSES, recommendChain, startExpedition, type SceneRequest } from './engine/director';
+import { challengeFor, type Challenge } from './data/challenges';
+import { buildSceneRequest, DEFER_AFTER_MISSES, recommendChain, startExpedition, stepSeed, type SceneRequest } from './engine/director';
+import type { LabResult } from './engine/lab';
 import { fitAttention, masteryEvent, masteryMatrix, type AttentionModel, type MasteryEvent, type MasteryMatrix } from './engine/attention';
 import { packMatrix, toBase64 } from './engine/matrix';
 import { CONCEPTS, LIST_VERSION } from './engine/relations';
@@ -11,13 +13,14 @@ import { activeBackend, evaluateNote, generateScene, type NoteVerdict } from './
 import { loadHostedConfig, saveHostedConfig, type HostedConfig } from './llm/hosted';
 import { onBrowserModelChange, restoreCachedBrowserModel } from './llm/webllm';
 import {
-  answerScene, applyRemote, beginExpedition, buildSavePayload, buyRunUpgrade, concludeRound, deferCurrentStep, ensureRun,
+  answerChallenge, answerScene, applyRemote, beginExpedition, buildSavePayload, buyRunUpgrade, concludeRound, deferCurrentStep, ensureRun,
   hasUnsavedChanges, leaveCamp, loadDraft, markSaved, newSession, recordNote, saveDraft, startNewRun, type SessionState,
 } from './session/store';
 import { isCloudConfigured, loadCloudConfig, pullProgress, pushSave, saveCloudConfig, type CloudConfig } from './sync/cloud';
 import { Camp } from './components/Camp';
 import { Header } from './components/Header';
 import { Journal } from './components/Journal';
+import { LabView, type LabAnswered } from './components/LabView';
 import { MapView } from './components/MapView';
 import { SceneView } from './components/SceneView';
 import { SettingsPanel } from './components/SettingsPanel';
@@ -45,6 +48,9 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [answered, setAnswered] = useState<Answered | null>(null);
+  // A lab challenge for the current link, when its anchor has one; the scene is skipped.
+  const [lab, setLab] = useState<{ challenge: Challenge; seed: number } | null>(null);
+  const [labAnswered, setLabAnswered] = useState<LabAnswered | null>(null);
   const [verdict, setVerdict] = useState<NoteVerdict | null>(null);
   const [campOpen, setCampOpen] = useState(false);
   const [save, setSave] = useState<SaveStatus>({ kind: 'idle' });
@@ -140,7 +146,15 @@ export default function App() {
     setReq(request);
     setScene(null);
     setAnswered(null);
+    setLabAnswered(null);
     setVerdict(null);
+    const challenge = challengeFor(request.anchor.id);
+    if (challenge) {
+      setLab({ challenge, seed: stepSeed(state.expedition) });
+      setLoading(false);
+      return;
+    }
+    setLab(null);
     setLoading(true);
     const result = await generateScene(request, llm, backends);
     if (token !== sceneToken.current) return;
@@ -179,6 +193,20 @@ export default function App() {
     if (reason && isCloudConfigured(cloud)) void pushToCloud(state, reason, matrixOf(state));
   };
 
+  // The lab judged the goal; the submission is recorded exactly like a scene answer.
+  const submitLab = (result: LabResult) => {
+    if (!req || !lab || labAnswered) return;
+    const correct = lab.challenge.goal.met(result);
+    const readout = lab.challenge.readout(result);
+    const outcome = answerChallenge(session, { req, correct, readout, now: nowIso(), eventId: newId(), model: tracker });
+    setSession(outcome.state);
+    setLabAnswered({ correct, points: outcome.points, gate: outcome.gate, readout });
+    if (outcome.campDue) setCampOpen(true);
+    const after = matrixOf(outcome.state);
+    const event = masteryEvent(matrix, after, req.anchor.id);
+    if (event && isCloudConfigured(cloud)) pendingSave.current = event;
+  };
+
   const submitNote = async (note: string) => {
     if (!req || !answered || !note.trim()) return;
     const v = await evaluateNote(req, answered.choice.text, note, llm, backends);
@@ -193,6 +221,8 @@ export default function App() {
       setScene(null);
       setReq(null);
       setAnswered(null);
+      setLab(null);
+      setLabAnswered(null);
     }
   };
 
@@ -213,6 +243,8 @@ export default function App() {
     setScene(null);
     setReq(null);
     setAnswered(null);
+    setLab(null);
+    setLabAnswered(null);
     setLoading(false);
   };
 
@@ -304,10 +336,28 @@ export default function App() {
         {view === 'map' && !exp && (
           <MapView session={session} recommendedId={recommended.id} run={session.run} onStart={start} onBuy={buy} onNewRun={newRun} backend={backend} onSettings={() => setView('settings')} />
         )}
-        {inExpedition && exp.status === 'complete' && !answered && (
+        {inExpedition && exp.status === 'complete' && !answered && !labAnswered && (
           <ExpeditionEnd expedition={exp} run={session.run} onDone={abandon} />
         )}
-        {inExpedition && (exp.status === 'active' || answered) && (
+        {inExpedition && (exp.status === 'active' || labAnswered) && lab && req && (
+          <LabView
+            expedition={exp}
+            run={session.run}
+            chain={CHAIN_BY_ID.get(exp.chainId)!}
+            req={req}
+            challenge={lab.challenge}
+            setting={req.setting}
+            seed={lab.seed}
+            answered={labAnswered}
+            misses={missesOnStep}
+            canDefer={missesOnStep >= DEFER_AFTER_MISSES && !labAnswered}
+            onSubmit={submitLab}
+            onContinue={proceed}
+            onDefer={defer}
+            onLeave={abandon}
+          />
+        )}
+        {inExpedition && (exp.status === 'active' || answered) && !lab && (
           <SceneView
             expedition={exp}
             run={session.run}

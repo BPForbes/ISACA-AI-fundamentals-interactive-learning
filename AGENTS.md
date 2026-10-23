@@ -32,6 +32,14 @@ plus a Cloudflare Worker (`worker/`) that stores progress in D1 and can generate
   expedition) but never decides move-on: that stays with `decideAdvance`. The relation table comes from the guide's
   chains, distinctions and sections, never from model output.
 - Calculation scenes stay on the offline engine so arithmetic is exact.
+- Lab challenges (`src/data/challenges.ts`, `src/engine/lab/`) replace the scene for an anchor the lab can teach by
+  doing. The lab is a real, seeded simulation (sampling, corruption and cleaning; a small network trained by gradient
+  descent; a threshold and confusion matrix); it decides nothing about mastery. A challenge is a broken setup, a goal
+  the simulation judges, terms for the debrief (the anchor first) and a solution; `src/data/tests/challenges.test.ts`
+  must keep proving on eight seeds that the setup fails the goal and the solution meets it. Briefs are hypothetical
+  ("Suppose…"), fictional, and never hand over a definition; definitions come from `TERM_BY_ID`. A submission goes
+  through `answerChallenge`, which records it exactly as a scene answer (`mode: 'lab'`), so the teaching rules above
+  apply unchanged: a miss keeps the anchor in play (re-seeded) and the move-on gate decides.
 - The run (`src/engine/run.ts`, `src/data/upgrades.ts`, `src/data/briefs.ts`) is a game layer that only reads each
   answer's outcome. An upgrade changes the run's numbers (loss, what a scene costs the meters, credits) and nothing
   else: never which concept is asked, whether an answer counts, mastery, the matrix, the move-on gate or a scene's

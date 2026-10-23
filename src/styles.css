@@ -268,9 +268,44 @@ details p { color: var(--muted); font-size: 0.88rem; }
 .run-over button { display: inline-flex; align-items: center; gap: 0.4rem; margin-top: 0.6rem; }
 .chain button { display: inline-flex; align-items: center; justify-content: center; gap: 0.4rem; }
 
+/* Lab */
+.lab .narration { font-size: 1rem; }
+.goal { background: var(--panel-2); border-left: 4px solid var(--warn); border-radius: 4px; padding: 0.5rem 0.7rem; margin: 0.5rem 0; }
+.goal.met { border-left-color: var(--good); }
+.goal .small { display: block; }
+.stages { display: flex; gap: 0.35rem; margin: 0.6rem 0 0.4rem; }
+.lab-panel { display: grid; grid-template-columns: minmax(0, 1fr) minmax(220px, 280px); gap: 0.8rem; align-items: start; }
+.lab-panel > .small { grid-column: 1 / -1; margin: 0; }
+.lab-plots { display: grid; gap: 0.5rem; }
+.lab-plot { width: 100%; height: auto; display: block; background: var(--bg); border: 1px solid var(--line); border-radius: 4px; }
+.lab-plot .pop { fill: var(--line); }
+.lab-plot .row.pos { fill: var(--accent); }
+.lab-plot .row.neg { fill: var(--c4); }
+.lab-plot .cell.pos { fill: var(--accent); }
+.lab-plot .cell.neg { fill: var(--c4); }
+.lab-plot .curve { fill: none; stroke-width: 2; }
+.lab-plot .curve.train { stroke: var(--c4); }
+.lab-plot .curve.val { stroke: var(--accent); }
+.strip { max-height: 90px; }
+.lab-controls fieldset { border: 1px solid var(--line); border-radius: 4px; padding: 0.5rem 0.7rem; margin: 0; display: grid; gap: 0.35rem; }
+.lab-controls legend { color: var(--muted); font-size: 0.8rem; text-transform: uppercase; letter-spacing: 0.06em; padding: 0 0.3rem; }
+.lab-controls .field { margin: 0; }
+.lab-controls select { width: auto; padding: 0.25rem 0.4rem; }
+.lab-controls input[type='range'] { width: 100%; }
+.radio, .check { display: flex; align-items: center; gap: 0.4rem; font-size: 0.9rem; }
+.radio input, .check input { width: auto; margin: 0; }
+.term { border-bottom: 1px dotted var(--muted); cursor: help; }
+.confusion { width: auto; margin: 0.5rem 0; }
+.confusion td, .confusion th { padding: 0.3rem 0.7rem; }
+.confusion td { background: var(--panel-2); }
+.metrics { list-style: none; padding: 0; margin: 0.3rem 0; display: flex; flex-wrap: wrap; gap: 0.4rem 1rem; font-size: 0.9rem; }
+.metrics li.kpi { color: var(--accent); }
+.lab .primary { display: inline-flex; align-items: center; gap: 0.4rem; margin-top: 0.6rem; }
+
 @media (max-width: 860px) {
   .regions { grid-template-columns: repeat(2, minmax(0, 1fr)); }
   .scene-layout { grid-template-columns: 1fr; }
+  .lab-panel { grid-template-columns: 1fr; }
   .scene-side { position: static; }
   .hud { margin-left: 0; }
 }

@@ -118,30 +118,80 @@ export type AnswerInput = {
 
 export type AnswerOutcome = { state: SessionState; points: number; campDue: boolean; gate: GateDecision };
 
-export const answerScene = (s: SessionState, a: AnswerInput): AnswerOutcome => {
+/** A lab challenge's submission: the simulation judged the goal; the readout is what the learner achieved. */
+export type ChallengeInput = {
+  req: SceneRequest;
+  correct: boolean;
+  readout: string;
+  now: string;
+  eventId: string;
+  model: TrackerModel | null;
+};
+
+// What a scene answer and a lab submission have in common once judged.
+type Judged = {
+  req: SceneRequest;
+  correct: boolean;
+  risk: number;
+  explained: boolean;
+  note: string;
+  now: string;
+  eventId: string;
+  model: TrackerModel | null;
+  source: 'ai' | 'offline';
+  mode: string;
+  choiceText: string;
+  consequence: string;
+};
+
+export const answerScene = (s: SessionState, a: AnswerInput): AnswerOutcome => applyAnswer(s, {
+  ...a,
+  correct: a.choice.correct,
+  source: a.scene.source,
+  mode: a.req.mode,
+  choiceText: a.choice.text,
+  consequence: a.choice.consequence,
+});
+
+export const answerChallenge = (s: SessionState, a: ChallengeInput): AnswerOutcome => applyAnswer(s, {
+  req: a.req,
+  correct: a.correct,
+  risk: 1,
+  explained: false,
+  note: a.readout,
+  now: a.now,
+  eventId: a.eventId,
+  model: a.model,
+  source: 'offline',
+  mode: 'lab',
+  choiceText: a.readout,
+  consequence: `The lab reported: ${a.readout}.`,
+});
+
+const applyAnswer = (s: SessionState, a: Judged): AnswerOutcome => {
   if (!s.expedition) throw new Error('No active expedition');
   const anchorId = a.req.anchor.id;
   const prev = s.progress[anchorId] ?? newProgress(anchorId, a.now);
   const progress = recordAnswer(prev, {
-    correct: a.choice.correct,
+    correct: a.correct,
     settingId: a.req.setting.id,
     unfamiliarSetting: a.req.setting.kind === 'unfamiliar',
     explained: a.explained,
   }, a.now);
-  const score = scoreAnswer({ correct: a.choice.correct, risk: a.risk, mode: a.req.mode, streakBefore: s.stats.streak });
+  const score = scoreAnswer({ correct: a.correct, risk: a.risk, mode: a.mode, streakBefore: s.stats.streak });
 
   const stats: SessionStats = {
     ...s.stats,
     points: s.stats.points + score.points,
     answered: s.stats.answered + 1,
-    correct: s.stats.correct + (a.choice.correct ? 1 : 0),
+    correct: s.stats.correct + (a.correct ? 1 : 0),
     streak: score.streak,
     longestStreak: Math.max(s.stats.longestStreak, score.streak),
-    modesUsed: addUnique(s.stats.modesUsed, a.req.mode),
+    modesUsed: addUnique(s.stats.modesUsed, a.mode),
   };
 
   // A miss queues the anchor for spaced repetition; two correct answers in a row clear it.
-  const remediation = a.choice.correct
+  const remediation = a.correct
     ? s.remediation.filter((id) => id !== anchorId || progress.recent.slice(-2).some((r) => !r))
     : addUnique(s.remediation, anchorId);
 
@@ -151,12 +201,12 @@ export const answerScene = (s: SessionState, a: AnswerInput): AnswerOutcome => {
     at: a.now,
     chainId: a.req.chain.id,
     anchor: anchorId,
-    mode: a.req.mode,
+    mode: a.mode,
     settingId: a.req.setting.id,
-    correct: a.choice.correct,
+    correct: a.correct,
     risk: a.risk,
     points: score.points,
-    source: a.scene.source,
+    source: a.source,
     note: a.note.slice(0, 1000),
   };
 
@@ -164,17 +214,17 @@ export const answerScene = (s: SessionState, a: AnswerInput): AnswerOutcome => {
     id: a.eventId,
     at: a.now,
     concept: anchorId,
-    correct: a.choice.correct,
+    correct: a.correct,
     risk: a.risk,
-    mode: a.req.mode,
+    mode: a.mode,
     settingId: a.req.setting.id,
-    source: a.scene.source,
+    source: a.source,
   };
   const history = [...(s.history ?? []), historyEvent].slice(-HISTORY_CAP);
 
   const exp = s.expedition;
   const gate = decideAdvance({
-    correct: a.choice.correct,
+    correct: a.correct,
     missesOnStep: exp.missesOnStep,
     confirmationsOnStep: exp.confirmationsOnStep ?? 0,
     previousOnStepCorrect: exp.lastOnStepCorrect ?? false,
@@ -184,12 +234,12 @@ export const answerScene = (s: SessionState, a: AnswerInput): AnswerOutcome => {
 
   // The run only reads the answer: the loss moves, and upgrades set what a scene costs the team.
   const fx = effectsOf(s.run?.upgrades ?? {});
-  const run = s.run ? trainingStep(s.run, { correct: a.choice.correct, fixingMiss: exp.missesOnStep > 0 && !exp.lastOnStepCorrect }) : null;
+  const run = s.run ? trainingStep(s.run, { correct: a.correct, fixingMiss: exp.missesOnStep > 0 && !exp.lastOnStepCorrect }) : null;
   const expedition = applyDecision(exp, {
     anchor: anchorId,
-    choice: a.choice.text,
-    correct: a.choice.correct,
-    consequence: a.choice.consequence,
+    choice: a.choiceText,
+    correct: a.correct,
+    consequence: a.consequence,
     situation: a.req.situation.id,
   }, gate.advance, { missTrust: fx.missTrust, missBudget: fx.missBudget, missRisk: fx.missRisk, correctBudget: fx.correctBudget });
 

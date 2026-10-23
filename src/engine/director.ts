@@ -153,6 +153,9 @@ const hash = (text: string) => {
  * any but the last three), picked deterministically from the expedition and its log so
  * a re-asked link after a miss lands in a new moment.
  */
+/** A seed for whatever is built for the next scene of this expedition; it changes with every answer. */
+export const stepSeed = (exp: Expedition): number => hash(`${exp.id}:${exp.stepIndex}:${exp.log.length}`);
+
 export const pickSituation = (exp: Expedition): Situation => {
   const used = exp.log.map((b) => b.situation).filter((id): id is string => Boolean(id));
   const fresh = SITUATIONS.filter((s) => !used.includes(s.id));

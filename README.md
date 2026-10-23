@@ -106,6 +106,33 @@ flowchart LR
 > second model call. It borrows the generator-versus-discriminator structure, not the training. Calculation scenes
 > always use the template so the arithmetic is exact.
 
+## The lab: learning by doing
+
+Sixteen of the chain links are not scenes but **lab challenges** (`src/data/challenges.ts`): the link's concept is
+something the learner has to do, in a small but real machine-learning lab (`src/engine/lab/`).
+
+- **The lab is real.** A fictional population of cases with two features, a label and a minority group; a sample
+  drawn by convenience, at random or stratified, corrupted with duplicates, impossible readings or wrong labels,
+  and cleaned, checked or augmented; a small network (linear, or one or two hidden layers) trained by mini-batch
+  gradient descent with a learning rate, epochs, batch size and L2 regularization; a decision threshold against a
+  live confusion matrix with precision, recall, specificity, accuracy and per-group accuracy; a drifted test set.
+  Every control change re-runs the whole pipeline (about 15 ms), so the learner sees what each concept does.
+- **A challenge is a broken lab and a goal.** Convenience sampling has left the minority out; the export is full of
+  readings no instrument produced; the model is a straight line through a pattern that bends; a big network has
+  memorised 24 rows; the report measured loss on the training rows; the threshold misses most real cases; the
+  dashboard shows accuracy when the objective is about misses; this quarter's cases have drifted. The goal is a
+  number the simulation judges (validation loss, false negatives, recall, a group accuracy gap, compute). Meeting it
+  is the mastery evidence; missing it keeps the link in play on a fresh seed, and a hint opens after two misses.
+- **Fair by construction.** Every challenge carries a solution, and the tests prove on eight seeds that the setup
+  fails its goal and the solution meets it. Briefs are hypothetical and never quote a definition; the debrief
+  quotes the term bank.
+
+The lab covers the Chapter 3 and 4 anchors (sampling, cleansing, training data, data quality, GIGO, poisoning,
+fairness testing, parameter updates, parameters, generalization, model assessment, technical feasibility, the
+confusion matrix, recall, KPIs, model drift). Chapter 1, 2 and 5 anchors are still story scenes; the planned
+mechanics for them are a rules workbench (expert systems, inference, explainability) and a governance board (risk,
+oversight, controls).
+
 ## The run: a roguelike around the expeditions
 
 Studying is framed as a **run**: one attempt to train a model for a fictional brief ("sort 40,000 unlabelled survey
@@ -184,8 +211,8 @@ npm run build    # typecheck and production build
 
 | Area | Location |
 | --- | --- |
-| Term bank, chains, distinctions, story settings, scene situations, run briefs and the upgrade catalogue | [`src/data/`](src/data) |
-| Mastery, scoring, director, templates, discriminator, LSTM and attention trackers, relation table, packed matrix, the run (`run.ts`) | [`src/engine/`](src/engine) |
+| Term bank, chains, distinctions, story settings, scene situations, run briefs, the upgrade catalogue, lab challenges | [`src/data/`](src/data) |
+| Mastery, scoring, director, templates, discriminator, LSTM and attention trackers, relation table, packed matrix, the run (`run.ts`), the lab simulation (`lab/`) | [`src/engine/`](src/engine) |
 | Hosted, in-browser, Ollama and Workers AI backends; the generate–discriminate loop | [`src/llm/`](src/llm) |
 | Session state, dirty tracking, study-context export | [`src/session/`](src/session) |
 | Cloud client and the Cloudflare Worker + D1 migration | [`src/sync/`](src/sync), [`worker/`](worker) |
