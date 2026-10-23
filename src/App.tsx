@@ -180,8 +180,9 @@ export default function App() {
 
   const saveToCloud = async () => {
     if (!isCloudConfigured(cloud)) {
-      setSave({ kind: 'error', message: 'Set the Worker URL and sync token in Settings first.' });
-      setView('settings');
+      // Progress is already kept on this device after every answer; the cloud copy is an optional backup.
+      saveDraft(session);
+      setSave({ kind: 'saved', message: 'Saved on this device. Add a sync token in Settings to also back it up to the cloud.' });
       return;
     }
     const at = nowIso();
