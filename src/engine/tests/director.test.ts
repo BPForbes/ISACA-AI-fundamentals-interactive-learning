@@ -7,7 +7,7 @@ import { newProgress, recordAnswer } from '../progress';
 
 const rng = () => 0.42;
 const est = (p: number, attempts: number, state: ConceptEstimate['state'], lastAt: string | null = null): ConceptEstimate => ({
-  p, evidence: attempts, attempts, state, lastAt,
+  p, ownP: p, evidence: attempts, attempts, state, lastAt,
 });
 const now = '2026-10-22T00:00:00Z';
 

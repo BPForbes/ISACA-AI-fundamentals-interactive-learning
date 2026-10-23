@@ -132,7 +132,7 @@ describe('save and progress', () => {
 });
 
 const packed = toBase64(packMatrix(new Map([
-  ['kpi', { p: 0.9, evidence: 4, attempts: 4, state: 'mastered', lastAt: null }],
+  ['kpi', { p: 0.9, ownP: 0.9, evidence: 4, attempts: 4, state: 'mastered', lastAt: null }],
 ]) as MasteryMatrix));
 const mastery = (updatedAt: string, reason = 'mastery', extra: Record<string, unknown> = {}) => ({
   packed, concepts: CONCEPTS.length, listVersion: LIST_VERSION, reason, updatedAt, ...extra,

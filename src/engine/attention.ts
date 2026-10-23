@@ -138,8 +138,10 @@ export const fitAttention = (allHistory: HistoryEvent[]): AttentionModel => {
 export type ConceptState = 'unseen' | 'learning' | 'struggling' | 'mastered';
 
 export type ConceptEstimate = {
-  // Chance the next answer on this concept is right.
+  // Chance the next answer on this concept is right, from its own and related answers.
   p: number;
+  // The same from the concept's own answers only (with the same decay); the state is judged on this.
+  ownP: number;
   // Total attention weight behind p; 1 is one fresh answer on the concept itself.
   evidence: number;
   // The concept's own answers in the history.
@@ -171,6 +173,7 @@ export const masteryMatrix = (model: AttentionModel | null, history: HistoryEven
   const params = model?.assessment.trusted ? model.params : BASELINE;
   const events = index(history);
   const pow = relPowers(params.sharpness);
+  const ownPow = relPowers(null);
   const rate = decayRate(params.halfLifeHours);
   const t = Date.parse(now);
   const attempts = new Map<number, number>();
@@ -186,7 +189,9 @@ export const masteryMatrix = (model: AttentionModel | null, history: HistoryEven
     const { p, evidence } = attend(events, events.length, c, t, pow, rate);
     const own = attempts.get(c) ?? 0;
     if (evidence === 0 && own === 0) return;
-    out.set(id, { p, evidence, attempts: own, state: stateOf(p, own), lastAt: last.get(c) ?? null });
+    // Related answers inform p, never the state: neighbours cannot master or rescue a concept.
+    const ownP = own === 0 ? 0.5 : attend(events, events.length, c, t, ownPow, rate).p;
+    out.set(id, { p, ownP, evidence, attempts: own, state: stateOf(ownP, own), lastAt: last.get(c) ?? null });
   });
   return out;
 };

@@ -4,9 +4,9 @@ import { fromBase64, packedSize, packMatrix, toBase64, unpackMatrix } from '../m
 import { CONCEPTS } from '../relations';
 
 const matrix: MasteryMatrix = new Map([
-  ['precision', { p: 0.9, evidence: 5, attempts: 5, state: 'mastered', lastAt: null }],
-  ['recall', { p: 0.31, evidence: 0.6, attempts: 2, state: 'struggling', lastAt: null }],
-  ['kpi', { p: 1.2, evidence: 999, attempts: 9, state: 'mastered', lastAt: null }],
+  ['precision', { p: 0.9, ownP: 0.9, evidence: 5, attempts: 5, state: 'mastered', lastAt: null }],
+  ['recall', { p: 0.31, ownP: 0.31, evidence: 0.6, attempts: 2, state: 'struggling', lastAt: null }],
+  ['kpi', { p: 1.2, ownP: 1.2, evidence: 999, attempts: 9, state: 'mastered', lastAt: null }],
 ]);
 
 describe('packed mastery matrix', () => {

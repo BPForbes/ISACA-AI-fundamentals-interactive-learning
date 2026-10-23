@@ -143,7 +143,7 @@ with. The mastery rules still decide when you move on.
 
 Your learning stays in the current session (with a local draft, so a reload loses nothing) until a save: when you
 press **Save**, and automatically, once the cloud is set up, when a concept reaches mastery or a struggle is detected
-(including deferring a stuck link). A save sends only what changed — the concepts you touched, the scenes you played,
+(including deferring a stuck link). The automatic save is sent as you leave that scene, so your field note goes too. A save sends only what changed — the concepts you touched, the scenes you played,
 the rematch queue, a session summary and the mastery matrix, bit-packed to two bytes per concept — to a Cloudflare
 Worker backed by D1. Saves are idempotent, and an older copy of a concept never overwrites
 a newer one. See [`worker/README.md`](worker/README.md) to deploy it. Without it, progress lives in your browser.

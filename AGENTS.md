@@ -51,7 +51,8 @@ plus a Cloudflare Worker (`worker/`) that stores progress in D1 and can generate
   (`mastery_matrix`, one row) follows the same newer-`updatedAt` rule, and the Worker checks its format byte, list
   version and length before storing it.
 - Saves happen on the learner's Save, and automatically (only with the cloud configured) when a concept reaches
-  mastery or a struggle is detected. Do not add other automatic saves.
+  mastery or a struggle is detected; that save is sent when the learner leaves the scene, so the field note goes with
+  it. Do not add other automatic saves.
 
 ## Workflow
 

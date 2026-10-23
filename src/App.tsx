@@ -51,6 +51,8 @@ export default function App() {
   const [modelStatus, setModelStatus] = useState<string | null>(null);
   const [, setModelVersion] = useState(0);
   const sceneToken = useRef(0);
+  // A mastery or struggle save waits until the learner leaves the scene, so the field note goes with it.
+  const pendingSave = useRef<MasteryEvent | null>(null);
   const trainedAt = useRef(-1);
 
   useEffect(() => saveDraft(session), [session]);
@@ -164,7 +166,13 @@ export default function App() {
     // Reaching mastery or starting to struggle is a save point, as is a manual save.
     const after = matrixOf(outcome.state);
     const event = masteryEvent(matrix, after, req.anchor.id);
-    if (event && isCloudConfigured(cloud)) void pushToCloud(outcome.state, event, after);
+    if (event && isCloudConfigured(cloud)) pendingSave.current = event;
+  };
+
+  const flushPendingSave = (state: SessionState) => {
+    const reason = pendingSave.current;
+    pendingSave.current = null;
+    if (reason && isCloudConfigured(cloud)) void pushToCloud(state, reason, matrixOf(state));
   };
 
   const submitNote = async (note: string) => {
@@ -175,6 +183,7 @@ export default function App() {
   };
 
   const proceed = () => {
+    flushPendingSave(session);
     if (session.expedition?.status === 'active') void loadScene(session);
     else {
       setScene(null);
@@ -188,10 +197,12 @@ export default function App() {
     setSession(next);
     void loadScene(next);
     // Deferring means the learner is stuck: save that, as the matrix does for a detected struggle.
-    if (isCloudConfigured(cloud)) void pushToCloud(next, 'struggle', matrixOf(next));
+    pendingSave.current = 'struggle';
+    flushPendingSave(next);
   };
 
   const abandon = () => {
+    flushPendingSave(session);
     sceneToken.current += 1;
     setSession((s) => ({ ...s, expedition: null }));
     setScene(null);
@@ -207,7 +218,10 @@ export default function App() {
       setSave({ kind: 'saved', message: 'Saved on this device. Add a sync token in Settings to also back it up to the cloud.' });
       return;
     }
-    await pushToCloud(session, 'manual', matrix);
+    // A manual save carries everything, the pending mastery or struggle included.
+    const reason = pendingSave.current ?? 'manual';
+    pendingSave.current = null;
+    await pushToCloud(session, reason, matrix);
   };
 
   async function pushToCloud(state: SessionState, reason: 'manual' | MasteryEvent, m: MasteryMatrix) {
@@ -237,6 +251,7 @@ export default function App() {
   };
 
   const endSession = () => {
+    flushPendingSave(session);
     sceneToken.current += 1;
     setSession((s) => newSession(nowIso(), newId(), s));
     setScene(null);

@@ -132,8 +132,8 @@ export const bridgeFor = (anchorId: string, matrix: MasteryMatrix, exclude: stri
   let bestScore = 0;
   for (const { id, weight } of neighbours(anchorId, REL_ADJACENT_STEP)) {
     const e = matrix.get(id);
-    if (!e || exclude.includes(id) || e.attempts === 0 || e.state === 'struggling' || e.p < BRIDGE_MIN_P) continue;
-    const score = weight * e.p;
+    if (!e || exclude.includes(id) || e.attempts === 0 || e.state === 'struggling' || e.ownP < BRIDGE_MIN_P) continue;
+    const score = weight * e.ownP;
     if (score > bestScore) {
       best = id;
       bestScore = score;

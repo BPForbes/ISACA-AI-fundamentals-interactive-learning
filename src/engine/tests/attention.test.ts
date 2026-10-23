@@ -51,6 +51,17 @@ describe('attention tracker', () => {
     expect(stateOf(0.6, 5)).toBe('learning');
   });
 
+  it('never lets related answers master or rescue a concept', () => {
+    const history = [
+      ...Array.from({ length: 50 }, (_, k) => ev('precision', true, k)),
+      ...[0, 1, 2].map((k) => ev('recall', false, 50 + k)),
+    ];
+    const recall = masteryMatrix(trusted(null, 1), history, at(60)).get('recall')!;
+    expect(recall.p).toBeGreaterThan(0.85);
+    expect(recall.ownP).toBeCloseTo(1 / 5);
+    expect(recall.state).toBe('struggling');
+  });
+
   it('reports a mastery or struggle transition as a save point', () => {
     const base = [ev('kgi', true, 0), ev('kgi', true, 1), ev('kgi', true, 2), ev('kgi', true, 3)];
     const before = masteryMatrix(null, base.slice(0, 3), at(3));
