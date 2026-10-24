@@ -1,20 +1,28 @@
 import { CHAINS } from '../data/chains';
 import { CHAPTERS, TERM_BY_ID, termsInChapter, type ChapterId } from '../data/terms';
 import { levelOf } from '../engine/progress';
+import type { RunState } from '../engine/run';
 import type { Backend } from '../llm';
 import type { SessionState } from '../session/store';
+import { PixelIcon } from './PixelIcon';
+import { RunOver, Workshop } from './Workshop';
 
 type Props = {
   session: SessionState;
   recommendedId: string;
   backend: Backend;
+  run: RunState | null;
   onStart: (chainId: string) => void;
+  onStartProject: () => void;
+  onBuy: (id: string) => void;
+  onNewRun: () => void;
   onSettings: () => void;
 };
 
 const LEVEL_SCORE: Record<string, number> = { Unknown: 0, Familiar: 0.35, Competent: 0.65, Proficient: 0.9, Mastered: 1 };
 
-export function MapView({ session, recommendedId, backend, onStart, onSettings }: Props) {
+export function MapView({ session, recommendedId, backend, run, onStart, onStartProject, onBuy, onNewRun, onSettings }: Props) {
+  const over = run?.phase === 'over';
   const chapterMastery = (c: ChapterId) => {
     const terms = termsInChapter(c);
     const total = terms.reduce((sum, t) => {
@@ -26,12 +34,14 @@ export function MapView({ session, recommendedId, backend, onStart, onSettings }
 
   return (
     <div className="map">
+      {run && !over && <Workshop run={run} onBuy={onBuy} onStart={onStartProject} />}
+      {run && over && <RunOver run={run} onNewRun={onNewRun} />}
       <section className="intro card">
-        <h1>Five regions, one lifecycle.</h1>
+        <h2>Five regions, one lifecycle.</h2>
         <p>
-          Every expedition follows one integration chain through the chapters: you advise a team, your calls have
-          consequences, and the story only moves on once the concept at each link holds up. Stake confidence on each
-          decision; your streak multiplies the points.
+          The lab's goals are drawn from all five chapters, and each project runs the lifecycle once. Below, the
+          story expeditions are practice outside the run: one integration chain through the chapters, where you advise
+          a team and the story only moves on once the concept at each link holds up.
         </p>
         {backend === 'offline' && (
           <p className="hint">
@@ -65,7 +75,7 @@ export function MapView({ session, recommendedId, backend, onStart, onSettings }
       )}
 
       <section aria-label="Expeditions">
-        <h2>Choose an expedition</h2>
+        <h2>Story expeditions (practice, outside the run)</h2>
         <div className="chains">
           {CHAINS.map((chain) => (
             <article key={chain.id} className={chain.id === recommendedId ? 'chain card recommended' : 'chain card'}>
@@ -83,7 +93,7 @@ export function MapView({ session, recommendedId, backend, onStart, onSettings }
                   );
                 })}
               </ol>
-              <button className="primary" onClick={() => onStart(chain.id)}>Set out</button>
+              <button onClick={() => onStart(chain.id)}><PixelIcon name="gamepad" /> Play the story</button>
             </article>
           ))}
         </div>

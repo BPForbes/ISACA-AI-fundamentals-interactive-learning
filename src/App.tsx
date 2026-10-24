@@ -1,7 +1,8 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { CHAIN_BY_ID } from './data/chains';
-import { buildSceneRequest, DEFER_AFTER_MISSES, recommendChain, startExpedition, type SceneRequest } from './engine/director';
 import { fitAttention, masteryEvent, masteryMatrix, type AttentionModel, type MasteryEvent, type MasteryMatrix } from './engine/attention';
+import { buildSceneRequest, DEFER_AFTER_MISSES, recommendChain, startExpedition, type SceneRequest } from './engine/director';
+import type { LabConfig, LabResult } from './engine/lab';
 import { packMatrix, toBase64 } from './engine/matrix';
 import { CONCEPTS, LIST_VERSION } from './engine/relations';
 import type { Choice, Scene } from './engine/scene';
@@ -11,20 +12,23 @@ import { activeBackend, evaluateNote, generateScene, type NoteVerdict } from './
 import { loadHostedConfig, saveHostedConfig, type HostedConfig } from './llm/hosted';
 import { onBrowserModelChange, restoreCachedBrowserModel } from './llm/webllm';
 import {
-  answerScene, applyRemote, beginExpedition, buildSavePayload, deferCurrentStep, hasUnsavedChanges,
-  leaveCamp, loadDraft, markSaved, newSession, recordNote, saveDraft, type SessionState,
+  answerScene, applyRemote, beginExpedition, briefOf, buildSavePayload, buyRunUpgrade, continueProjectGoal, currentProjectGoal, deferCurrentStep, deferProjectGoal,
+  ensureRun, finishProjectRound, hasUnsavedChanges, leaveCamp, loadDraft, markSaved, newSession, recordNote, saveDraft, startNewRun, startProject,
+  submitGoal, type SessionState,
 } from './session/store';
 import { isCloudConfigured, loadCloudConfig, pullProgress, pushSave, saveCloudConfig, type CloudConfig } from './sync/cloud';
 import { Camp } from './components/Camp';
 import { Header } from './components/Header';
 import { Journal } from './components/Journal';
 import { MapView } from './components/MapView';
+import { ProjectView, type GoalAnswered } from './components/ProjectView';
 import { SceneView } from './components/SceneView';
 import { SettingsPanel } from './components/SettingsPanel';
 import { ExpeditionEnd } from './components/ExpeditionEnd';
 
 const nowIso = () => new Date().toISOString();
 const newId = () => (typeof crypto !== 'undefined' && 'randomUUID' in crypto ? crypto.randomUUID() : `${Date.now()}-${Math.random()}`);
+const newSeed = () => Math.floor(Math.random() * 2 ** 31);
 
 type View = 'map' | 'journal' | 'settings';
 
@@ -33,7 +37,8 @@ export type Answered = { choice: Choice; points: number; risk: number; gate: Gat
 export type SaveStatus = { kind: 'idle' | 'saving' | 'saved' | 'error'; message?: string };
 
 export default function App() {
-  const [session, setSession] = useState<SessionState>(() => loadDraft() ?? newSession(nowIso(), newId()));
+  // A run is always in progress: the first visit starts one, and a finished run is replaced on request.
+  const [session, setSession] = useState<SessionState>(() => ensureRun(loadDraft() ?? newSession(nowIso(), newId()), nowIso(), newId(), newSeed()));
   const [llm, setLlm] = useState<LlmSettings>(loadLlmSettings);
   const [cloud, setCloud] = useState<CloudConfig>(loadCloudConfig);
   const [hosted, setHosted] = useState<HostedConfig>(loadHostedConfig);
@@ -43,6 +48,7 @@ export default function App() {
   const [loading, setLoading] = useState(false);
   const [notice, setNotice] = useState<string | null>(null);
   const [answered, setAnswered] = useState<Answered | null>(null);
+  const [goalAnswered, setGoalAnswered] = useState<GoalAnswered | null>(null);
   const [verdict, setVerdict] = useState<NoteVerdict | null>(null);
   const [campOpen, setCampOpen] = useState(false);
   const [save, setSave] = useState<SaveStatus>({ kind: 'idle' });
@@ -51,13 +57,13 @@ export default function App() {
   const [modelStatus, setModelStatus] = useState<string | null>(null);
   const [, setModelVersion] = useState(0);
   const sceneToken = useRef(0);
-  // A mastery or struggle save waits until the learner leaves the scene, so the field note goes with it.
-  const pendingSave = useRef<MasteryEvent | null>(null);
   const trainedAt = useRef(-1);
+  // A mastery or struggle save waits until the learner leaves the goal or scene, so the field note goes with it.
+  const pendingSave = useRef<MasteryEvent | null>(null);
 
   useEffect(() => saveDraft(session), [session]);
 
-  // Retrain the progress model in a Web Worker whenever enough new answers arrived.
+  // Retrain the progress models in a Web Worker whenever enough new answers arrived.
   const historyLength = session.history.length;
   const trainer = useRef<Worker | null>(null);
   const trainRequest = useRef(0);
@@ -131,6 +137,55 @@ export default function App() {
     [progressOf, session.remediation, matrix],
   );
 
+  const flushPendingSave = (state: SessionState) => {
+    const reason = pendingSave.current;
+    pendingSave.current = null;
+    if (reason && isCloudConfigured(cloud)) void pushToCloud(state, reason, matrixOf(state));
+  };
+
+  const noteMastery = (state: SessionState, anchor: string) => {
+    const event = masteryEvent(matrix, matrixOf(state), anchor);
+    if (event && isCloudConfigured(cloud)) pendingSave.current = event;
+  };
+
+  // ---------- the run: projects in the lab ----------
+
+  const beginProject = () => setSession((s) => startProject(s, newId(), newSeed()));
+
+  const submitLab = (lab: LabConfig, result: LabResult) => {
+    if (goalAnswered) return;
+    const cur = currentProjectGoal(session);
+    if (!cur) return;
+    const outcome = submitGoal(session, { lab, result, now: nowIso(), eventId: newId(), model: tracker });
+    setSession(outcome.state);
+    setGoalAnswered({ met: outcome.met, points: outcome.points, gate: outcome.gate, readout: outcome.readout });
+    if (outcome.campDue) setCampOpen(true);
+    noteMastery(outcome.state, cur.goal.anchor);
+  };
+
+  const continueGoal = () => {
+    flushPendingSave(session);
+    setSession((s) => continueProjectGoal(s));
+    setGoalAnswered(null);
+  };
+
+  const deferGoal = () => {
+    flushPendingSave(session);
+    setSession((s) => deferProjectGoal(s));
+    setGoalAnswered(null);
+  };
+
+  const finishProject = () => {
+    flushPendingSave(session);
+    setSession((s) => finishProjectRound(s).state);
+    setGoalAnswered(null);
+  };
+
+  const buy = (id: string) => setSession((s) => buyRunUpgrade(s, id));
+  const newRun = () => setSession((s) => startNewRun(s, nowIso(), newId(), newSeed()));
+
+  // ---------- story expeditions (practice outside the run) ----------
+
   const loadScene = useCallback(async (state: SessionState) => {
     if (!state.expedition || state.expedition.status !== 'active') return;
     const token = ++sceneToken.current;
@@ -148,6 +203,7 @@ export default function App() {
   }, [llm, backends, matrixOf]);
 
   const start = (chainId: string) => {
+    if (session.run?.project) return;
     const exp = startExpedition(chainId, { lastKind: session.lastKind, now: nowIso(), rng: Math.random });
     const next = beginExpedition(session, exp);
     setSession(next);
@@ -163,16 +219,7 @@ export default function App() {
     setSession(outcome.state);
     setAnswered({ choice, points: outcome.points, risk, gate: outcome.gate });
     if (outcome.campDue) setCampOpen(true);
-    // Reaching mastery or starting to struggle is a save point, as is a manual save.
-    const after = matrixOf(outcome.state);
-    const event = masteryEvent(matrix, after, req.anchor.id);
-    if (event && isCloudConfigured(cloud)) pendingSave.current = event;
-  };
-
-  const flushPendingSave = (state: SessionState) => {
-    const reason = pendingSave.current;
-    pendingSave.current = null;
-    if (reason && isCloudConfigured(cloud)) void pushToCloud(state, reason, matrixOf(state));
+    noteMastery(outcome.state, req.anchor.id);
   };
 
   const submitNote = async (note: string) => {
@@ -196,9 +243,6 @@ export default function App() {
     const next = deferCurrentStep(session);
     setSession(next);
     void loadScene(next);
-    // Deferring means the learner is stuck: save that, as the matrix does for a detected struggle.
-    pendingSave.current = 'struggle';
-    flushPendingSave(next);
   };
 
   const abandon = () => {
@@ -210,6 +254,8 @@ export default function App() {
     setAnswered(null);
     setLoading(false);
   };
+
+  // ---------- saving ----------
 
   const saveToCloud = async () => {
     if (!isCloudConfigured(cloud)) {
@@ -234,7 +280,7 @@ export default function App() {
       const result = await pushSave(cloud, payload);
       setSession((s) => markSaved(s, payload, at));
       const why = reason === 'mastery' ? ' (a concept reached mastery)' : reason === 'struggle' ? ' (a struggle was detected)' : '';
-      setSave({ kind: 'saved', message: result.status === 'already_saved' ? 'Already saved.' : `Saved ${payload.terms.length} concepts and ${payload.events.length} scenes${why}.` });
+      setSave({ kind: 'saved', message: result.status === 'already_saved' ? 'Already saved.' : `Saved ${payload.terms.length} concepts and ${payload.events.length} outcomes${why}.` });
     } catch (error) {
       setSave({ kind: 'error', message: error instanceof Error ? error.message : 'Save failed.' });
     }
@@ -259,14 +305,19 @@ export default function App() {
     setAnswered(null);
   };
 
+  const run = session.run;
+  const project = run?.project ?? null;
+  const brief = briefOf(session);
+  const goal = currentProjectGoal(session);
   const exp = session.expedition;
-  const inExpedition = exp !== null && view === 'map';
+  const inExpedition = exp !== null && !project && view === 'map';
   const missesOnStep = exp?.missesOnStep ?? 0;
 
   return (
     <div className="app">
       <Header
         stats={session.stats}
+        run={run}
         backend={backend}
         modelStatus={modelStatus}
         unsaved={session.dirty.length + session.events.length}
@@ -292,8 +343,22 @@ export default function App() {
         {view === 'journal' && (
           <Journal session={session} tracker={tracker} onEndSession={endSession} onSave={saveToCloud} cloudReady={isCloudConfigured(cloud)} />
         )}
-        {view === 'map' && !exp && (
-          <MapView session={session} recommendedId={recommended.id} onStart={start} backend={backend} onSettings={() => setView('settings')} />
+        {view === 'map' && run && project && brief && (
+          <ProjectView
+            run={run}
+            project={project}
+            brief={brief}
+            answered={goalAnswered}
+            canDefer={(goal?.state.misses ?? 0) >= DEFER_AFTER_MISSES && !goalAnswered}
+            onSubmit={submitLab}
+            onContinue={continueGoal}
+            onDefer={deferGoal}
+            onFinish={finishProject}
+            onAbandon={finishProject}
+          />
+        )}
+        {view === 'map' && !project && !exp && (
+          <MapView session={session} recommendedId={recommended.id} run={run} onStart={start} onStartProject={beginProject} onBuy={buy} onNewRun={newRun} backend={backend} onSettings={() => setView('settings')} />
         )}
         {inExpedition && exp.status === 'complete' && !answered && (
           <ExpeditionEnd expedition={exp} onDone={abandon} />

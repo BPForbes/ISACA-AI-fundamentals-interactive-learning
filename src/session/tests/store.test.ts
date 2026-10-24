@@ -1,10 +1,15 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildSceneRequest, startExpedition } from '../../engine/director';
 import { generateOfflineScene } from '../../engine/offline';
+import { defaultLab, runLab, type LabConfig } from '../../engine/lab';
+import { labForCurrent } from '../../engine/project';
 import {
-  answerScene, applyRemote, beginExpedition, buildSavePayload, buildStudyContext, CAMP_INTERVAL, deferCurrentStep,
-  hasUnsavedChanges, markSaved, newSession, recordNote, type SessionState,
+  answerScene, applyRemote, beginExpedition, buildSavePayload, buildStudyContext, buyRunUpgrade, CAMP_INTERVAL, continueProjectGoal, currentProjectGoal,
+  deferCurrentStep, deferProjectGoal, ensureRun, finishProjectRound, hasUnsavedChanges, loadDraft, markSaved, newSession, recordNote, startNewRun,
+  startProject, submitGoal, type SessionState,
 } from '../store';
+
+afterEach(() => vi.unstubAllGlobals());
 
 let clock = 0;
 const tick = () => `2026-10-22T10:${String(Math.floor(clock / 60)).padStart(2, '0')}:${String(clock++ % 60).padStart(2, '0')}Z`;
@@ -136,5 +141,90 @@ describe('session store', () => {
     expect(next.stats.answered).toBe(0);
     expect(next.progress).toBe(s.progress);
     expect(next.events).toHaveLength(1);
+  });
+});
+
+describe('the run inside a session', () => {
+  const withRun = () => ensureRun(newSession(tick(), 's1'), tick(), 'run-1', 5);
+  const submit = (state: SessionState, lab: LabConfig, id: string) => submitGoal(state, { lab, result: runLab(lab), now: tick(), eventId: id, model: null });
+
+  it('starts one run, keeps it across sessions, and replaces only a finished one', () => {
+    const s = withRun();
+    expect(s.run?.phase).toBe('workshop');
+    expect(ensureRun(s, tick(), 'run-2', 6).run).toBe(s.run);
+    expect(newSession(tick(), 'next', s).run).toBe(s.run);
+    const over = { ...s, run: { ...s.run!, phase: 'over' as const } };
+    expect(ensureRun(over, tick(), 'run-3', 7).run?.id).toBe('run-3');
+    expect(startNewRun(s, tick(), 'run-4', 8).run?.id).toBe('run-4');
+    expect(newSession(tick(), 'plain').run).toBeNull();
+  });
+
+  it('plans a project from the workshop and records each goal like an answer', () => {
+    const s = startProject(withRun(), 'p1', 7);
+    expect(s.run?.phase).toBe('project');
+    expect(startProject(s, 'p2', 8).run?.project?.id).toBe('p1');
+    const cur = currentProjectGoal(s)!;
+    const lab = labForCurrent(s.run!.project!)!;
+    const miss = submit(s, lab, 'g1');
+    expect(miss.met).toBe(false);
+    expect(miss.gate.advance).toBe(false);
+    expect(miss.state.events[0]).toMatchObject({ id: 'g1', mode: 'lab', chainId: 'project', settingId: s.run!.briefId, correct: false, risk: 1 });
+    expect(miss.state.history[0]).toMatchObject({ concept: cur.goal.anchor, correct: false, mode: 'lab' });
+    expect(miss.state.progress[cur.goal.anchor].attempts).toBe(1);
+    expect(miss.state.remediation).toContain(cur.goal.anchor);
+    expect(miss.state.run!.project!.index).toBe(0);
+    expect(miss.state.run!.project!.goals[0]).toMatchObject({ attempts: 1, misses: 1, outcome: 'missed' });
+    const fixed = cur.goal.solution(lab);
+    const hit = submit(miss.state, fixed, 'g2');
+    expect(hit.met).toBe(true);
+    expect(hit.points).toBeGreaterThan(0);
+    // Right after a miss, one more from a new setup confirms the fix.
+    expect(hit.gate.advance).toBe(false);
+    expect(hit.state.run!.project!.index).toBe(0);
+    const again = submit(hit.state, fixed, 'g3');
+    expect(again.gate.advance).toBe(true);
+    // The debrief still shows the goal it judged; the project moves on when the learner continues.
+    expect(again.state.run!.project).toMatchObject({ index: 0, advanceDue: true });
+    expect(continueProjectGoal(hit.state).run!.project).toBe(hit.state.run!.project);
+    const moved = continueProjectGoal(again.state);
+    expect(moved.run!.project).toMatchObject({ index: 1, advanceDue: false });
+    expect(moved.run!.project!.lab).toBe(fixed);
+    expect(continueProjectGoal(moved)).toBe(moved);
+    expect(again.state.stats.modesUsed).toEqual(['lab']);
+  });
+
+  it('resumes a draft saved during a debrief at the goal the gate had moved on to', () => {
+    const s = startProject(withRun(), 'p1', 7);
+    const cur = currentProjectGoal(s)!;
+    const fixed = cur.goal.solution(labForCurrent(s.run!.project!)!);
+    const due = submit(submit(s, fixed, 'g1').state, fixed, 'g2').state;
+    expect(due.run!.project!.advanceDue).toBe(true);
+    const store: Record<string, string> = { 'isaca-quest-session-v1': JSON.stringify(due) };
+    vi.stubGlobal('localStorage', { getItem: (k: string) => store[k] ?? null });
+    expect(loadDraft()!.run!.project).toMatchObject({ index: 1, advanceDue: false });
+    store['isaca-quest-session-v1'] = JSON.stringify(s);
+    expect(loadDraft()!.run!.project).toMatchObject({ index: 0, advanceDue: false });
+  });
+
+  it('defers a goal into the rematch queue and closes the project into the run', () => {
+    let s = startProject(withRun(), 'p1', 7);
+    const anchor = currentProjectGoal(s)!.goal.anchor;
+    s = deferProjectGoal(s);
+    expect(s.remediation).toContain(anchor);
+    expect(s.run!.project!.index).toBe(1);
+    const { state, report } = finishProjectRound(s);
+    expect(report).not.toBeNull();
+    expect(state.run!.project).toBeNull();
+    expect(state.run!.roundsCleared + state.run!.roundsFailed).toBe(1);
+    expect(['workshop', 'over']).toContain(state.run!.phase);
+    expect(finishProjectRound(state).report).toBeNull();
+  });
+
+  it('spends credits on an offered upgrade and lets a session with no run alone', () => {
+    const s = { ...withRun(), run: { ...withRun().run!, credits: 5 } };
+    const bought = buyRunUpgrade(s, s.run.offer[0]);
+    expect(Object.values(bought.run!.upgrades)).toEqual([1]);
+    expect(buyRunUpgrade(newSession(tick(), 'x'), 'depth').run).toBeNull();
+    expect(() => submit(withRun(), defaultLab(1), 'none')).toThrow();
   });
 });

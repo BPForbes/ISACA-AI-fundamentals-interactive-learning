@@ -1,12 +1,13 @@
 import { useEffect, useState } from 'react';
 import type { Answered } from '../App';
 import type { Chain } from '../data/chains';
-import { CHAPTERS, TERM_BY_ID } from '../data/terms';
+import { CHAPTERS } from '../data/terms';
 import type { Expedition, SceneRequest } from '../engine/director';
 import { levelOf, STAGE_NAMES, type TermProgress } from '../engine/progress';
 import { MODE_LABELS, type Choice, type Scene } from '../engine/scene';
 import { RISK_STEPS, suggestedRisk } from '../engine/scoring';
 import type { NoteVerdict } from '../llm';
+import { ExpeditionSide } from './ExpeditionSide';
 
 type Props = {
   expedition: Expedition;
@@ -26,18 +27,6 @@ type Props = {
   onLeave: () => void;
   onRetry: () => void;
 };
-
-function Meter({ label, value, invert }: { label: string; value: number; invert?: boolean }) {
-  const good = invert ? 100 - value : value;
-  return (
-    <div className="meter">
-      <span>{label}</span>
-      <div className="bar" role="meter" aria-label={label} aria-valuenow={value} aria-valuemin={0} aria-valuemax={100}>
-        <span className={good >= 60 ? 'ok' : good >= 35 ? 'warn' : 'bad'} style={{ width: `${value}%` }} />
-      </div>
-    </div>
-  );
-}
 
 export function SceneView(props: Props) {
   const { expedition, chain, req, scene, loading, notice, answered, verdict, progress } = props;
@@ -60,25 +49,7 @@ export function SceneView(props: Props) {
 
   return (
     <div className="scene-layout">
-      <aside className="scene-side card">
-        <h2>{chain.title}</h2>
-        <p className="path">{chain.path}</p>
-        <ol className="links progress-links">
-          {chain.steps.map((s, i) => (
-            <li
-              key={i}
-              className={i < expedition.stepIndex || (expedition.status === 'complete') ? 'done' : i === expedition.stepIndex ? 'current' : ''}
-            >
-              <span className="dot" />Ch.{s.chapter} · {TERM_BY_ID.get(s.anchor)?.term}
-            </li>
-          ))}
-        </ol>
-        <Meter label="Team trust" value={expedition.meters.trust} />
-        <Meter label="Budget" value={expedition.meters.budget} />
-        <Meter label="Risk exposure" value={expedition.meters.risk} invert />
-        <p className="cue"><strong>Exam cue:</strong> {chain.cue}</p>
-        <button className="ghost" onClick={props.onLeave}>Return to map</button>
-      </aside>
+      <ExpeditionSide expedition={expedition} chain={chain} onLeave={props.onLeave} />
 
       <section className="scene card" aria-live="polite">
         {req && (
