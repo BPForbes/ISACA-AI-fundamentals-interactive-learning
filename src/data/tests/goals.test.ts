@@ -33,8 +33,8 @@ describe('lab goals', () => {
       for (const g of GOALS.filter((x) => x.stage === stage)) {
         const broken = SEEDS.filter((s) => g.goal.met(runLab(g.setup(defaultLab(s), s))));
         const solved = SEEDS.filter((s) => g.goal.met(runLab(g.solution(g.setup(defaultLab(s), s)))));
-        // A lucky seed is tolerated once; a setup that is already solved more often is not broken.
-        expect(broken.length, `${g.anchor} is already solved on seeds ${broken.join(', ')}`).toBeLessThanOrEqual(1);
+        // A setup the simulation already passes teaches nothing: the learner could submit it untouched.
+        expect(broken, `${g.anchor} is already solved on seeds ${broken.join(', ')}`).toEqual([]);
         expect(solved, `${g.anchor} is not solved by its solution`).toEqual(SEEDS);
       }
     }, 90000);

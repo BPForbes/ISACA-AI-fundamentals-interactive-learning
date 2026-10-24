@@ -130,15 +130,17 @@ export function ProjectView(props: Props) {
   const { run, project, brief, answered } = props;
   const cur = currentGoal(project);
   const caps = useMemo(() => capabilities(run), [run]);
-  // The lab resets when the goal changes, and when a miss or confirmation re-seeds it.
+  // The lab resets when the goal changes, and when a miss or confirmation re-seeds it, but not
+  // during the debrief: the lab as submitted stays on show until the learner continues.
   const labKey = `${project.id}:${project.index}:${cur?.state.attempts ?? 0}`;
   const [config, setConfig] = useState<LabConfig>(() => labForCurrent(project) ?? project.lab);
   const [open, setOpen] = useState<Stage>(cur?.state.stage ?? 'define');
   useEffect(() => {
+    if (answered) return;
     setConfig(labForCurrent(project) ?? project.lab);
     setOpen(currentGoal(project)?.state.stage ?? 'define');
-    // The key is what changes; the project itself changes on every submission.
-  }, [labKey]);
+    // The key and the debrief are what change; the project itself changes on every submission.
+  }, [labKey, answered]);
   const result = useMemo(() => runLab(config), [config]);
 
   if (project.status === 'complete' || !cur) {

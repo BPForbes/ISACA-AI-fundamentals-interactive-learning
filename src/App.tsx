@@ -12,7 +12,7 @@ import { activeBackend, evaluateNote, generateScene, type NoteVerdict } from './
 import { loadHostedConfig, saveHostedConfig, type HostedConfig } from './llm/hosted';
 import { onBrowserModelChange, restoreCachedBrowserModel } from './llm/webllm';
 import {
-  answerScene, applyRemote, beginExpedition, briefOf, buildSavePayload, buyRunUpgrade, currentProjectGoal, deferCurrentStep, deferProjectGoal,
+  answerScene, applyRemote, beginExpedition, briefOf, buildSavePayload, buyRunUpgrade, continueProjectGoal, currentProjectGoal, deferCurrentStep, deferProjectGoal,
   ensureRun, finishProjectRound, hasUnsavedChanges, leaveCamp, loadDraft, markSaved, newSession, recordNote, saveDraft, startNewRun, startProject,
   submitGoal, type SessionState,
 } from './session/store';
@@ -165,6 +165,7 @@ export default function App() {
 
   const continueGoal = () => {
     flushPendingSave(session);
+    setSession((s) => continueProjectGoal(s));
     setGoalAnswered(null);
   };
 

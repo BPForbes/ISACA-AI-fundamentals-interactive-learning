@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { buildDataset, defaultData, MINORITY_SHARE, POPULATION, TEST_SIZE, VALIDATION_SIZE } from '../dataset';
 import { defaultLab, diagnose, runLab } from '..';
-import { FINES, monthlyCost } from '../deploy';
+import { CONTROL_COST, FINES, monthlyCost } from '../deploy';
 import { decide, decisionStats, induceRule, inference, KNOWLEDGE_BASE, ruleStats, type Rule } from '../rules';
 import { confusion, groupAccuracy, type Scored } from '../metrics';
 import { defaultFeatures, defaultModel, paramCount, trainModel, type TrainResult } from '../model';
@@ -175,6 +175,9 @@ describe('the rules workbench', () => {
     expect(blind.bySource.human).toBe(30);
     expect(blind.reviewerAccuracy).toBeGreaterThan(biased.reviewerAccuracy);
     expect(blind.accuracy).toBeGreaterThanOrEqual(biased.accuracy);
+    // Following the score is visible as never overruling the model.
+    expect(biased.reviewerOverrules).toBe(0);
+    expect(blind.reviewerOverrules).toBeGreaterThan(0);
   });
 });
 
@@ -206,6 +209,19 @@ describe('deployment', () => {
     expect(FINES.compliance).toBeGreaterThan(FINES.operational);
     const minimized = runLab({ ...bare, deploy: { ...bare.deploy, minimization: true } });
     expect(minimized.deploy.incidents.find((i) => i.kind === 'confidentiality')!.risk).toBeLessThan(r.deploy.incidents.find((i) => i.kind === 'confidentiality')!.risk);
+  });
+
+  it('prices the deployment by what the run has bought: cheaper compute, controls made free', () => {
+    const r = runLab(governed);
+    const priced = runLab({ ...governed, pricing: { compute: 0.5, free: ['monitoring', 'backups'] } });
+    expect(priced.monthlyCompute).toBe(Math.round(r.training.paramCount / 10));
+    expect(monthlyCost(governed.deploy, r.training.paramCount, priced.config.pricing))
+      .toBe(priced.monthlyCompute + CONTROL_COST.retrainOnAlert + CONTROL_COST.oversight + CONTROL_COST.auditTrail + CONTROL_COST.fairnessTesting + CONTROL_COST.accessControl);
+    expect(priced.deploy.months[0].cost).toBe(monthlyCost(governed.deploy, r.training.paramCount, priced.config.pricing));
+    expect(priced.deploy.cost).toBeLessThan(r.deploy.cost);
+    // Pricing changes what the deployment costs, never what the decisions are worth.
+    expect(priced.deploy.value).toBe(r.deploy.value);
+    expect(priced.deploy.incidents).toEqual(r.deploy.incidents);
   });
 
   it('judges the business goal and the appetite', () => {

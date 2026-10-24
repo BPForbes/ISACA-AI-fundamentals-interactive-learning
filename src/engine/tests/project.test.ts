@@ -1,7 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import { GOALS, STAGES } from '../../data/goals';
-import { defaultLab } from '../lab';
-import { advance, currentGoal, defer, GOALS_PER_STAGE, labForCurrent, planProject, recordSubmission, reportProject, stageOf, worldFor } from '../project';
+import { defaultLab, runLab } from '../lab';
+import { advance, currentGoal, defer, GOALS_PER_STAGE, labForCurrent, planProject, pricingFor, recordSubmission, reportProject, stageOf, worldFor } from '../project';
 
 const plan = (priority: (anchor: string) => number = () => 1, caps = new Set<never>()) =>
   planProject({ id: 'p', round: 0, seed: 9, capabilities: caps, priority });
@@ -12,6 +12,8 @@ describe('a project', () => {
     expect(p.goals.map((g) => g.stage)).toEqual(STAGES.flatMap((s) => Array(GOALS_PER_STAGE[s]).fill(s)));
     expect(p.goals.every((g) => !GOALS.find((x) => x.anchor === g.anchor)?.needs?.length)).toBe(true);
     expect(planProject({ id: 'p', round: 0, seed: 9, capabilities: new Set(), priority: () => 1 })).toEqual(p);
+    expect(p.advanceDue).toBe(false);
+    expect(p.lab.pricing).toEqual({ compute: 1, free: [] });
     const weak = plan((a) => (a === 'recall' ? 10 : 1));
     expect(weak.goals.some((g) => g.anchor === 'recall')).toBe(true);
     const strong = plan((a) => (a === 'recall' ? -10 : 1));
@@ -23,6 +25,16 @@ describe('a project', () => {
     const favour = (a: string) => (a === needsMomentum.anchor ? 10 : 1);
     expect(plan(favour).goals.map((g) => g.anchor)).not.toContain(needsMomentum.anchor);
     expect(planProject({ id: 'p', round: 0, seed: 9, capabilities: new Set(['momentum']), priority: favour }).goals.map((g) => g.anchor)).toContain(needsMomentum.anchor);
+  });
+
+  it("prices the lab by the run's upgrades: half-price compute, controls made free", () => {
+    expect(pricingFor(new Set())).toEqual({ compute: 1, free: [] });
+    expect(pricingFor(new Set(['freeBackups', 'cheapCompute', 'freeMonitoring', 'depth2']))).toEqual({ compute: 0.5, free: ['monitoring', 'backups'] });
+    const cheap = planProject({ id: 'p', round: 0, seed: 9, capabilities: new Set(['cheapCompute']), priority: () => 1 });
+    expect(cheap.lab.pricing).toEqual({ compute: 0.5, free: [] });
+    expect(runLab(cheap.lab).monthlyCompute).toBe(Math.round(runLab(plan().lab).training.paramCount / 10));
+    // A goal's setup keeps the pricing the project was planned with.
+    expect(labForCurrent(cheap)!.pricing).toEqual(cheap.lab.pricing);
   });
 
   it('hardens the world round by round', () => {
@@ -46,8 +58,9 @@ describe('a project', () => {
     expect(labForCurrent(p)).not.toEqual(start);
     p = recordSubmission(p, submitted, true);
     expect(p.goals[0]).toMatchObject({ outcome: 'met', attempts: 2, misses: 1, lastCorrect: true });
-    p = advance(p);
+    p = advance({ ...p, advanceDue: true });
     expect(p.index).toBe(1);
+    expect(p.advanceDue).toBe(false);
     expect(labForCurrent(p)!.threshold).toBe(0.35);
     p = defer(p);
     expect(p.goals[1].outcome).toBe('deferred');

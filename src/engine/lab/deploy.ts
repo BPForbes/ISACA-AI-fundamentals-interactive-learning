@@ -69,9 +69,16 @@ export const DRIFT_ALERT = 0.25;
 
 // What a decision is worth to the business, and what the controls and compute cost per month.
 export const VALUE = { tp: 4, fn: -10, fp: -2 };
-export const CONTROL_COST: Record<keyof Omit<DeployConfig, 'riskAppetite'>, number> = {
+export type ControlKey = keyof Omit<DeployConfig, 'riskAppetite'>;
+export const CONTROL_COST: Record<ControlKey, number> = {
   monitoring: 8, retrainOnAlert: 10, oversight: 16, auditTrail: 5, fairnessTesting: 6, accessControl: 6, backups: 6, minimization: 2,
 };
+export const CONTROL_KEYS = Object.keys(CONTROL_COST) as ControlKey[];
+
+// What the run's upgrades have done to the lab's running costs: a multiplier on the
+// model's monthly compute (model compression halves it) and controls that cost nothing.
+export type Pricing = { compute: number; free: ControlKey[] };
+export const defaultPricing = (): Pricing => ({ compute: 1, free: [] });
 export const APPETITE_LIMIT: Record<DeployConfig['riskAppetite'], number> = { low: 0, medium: 1, high: 3 };
 
 export type World = {
@@ -90,13 +97,16 @@ export type Deployment = {
   routing: Routing;
   model: TrainResult;
   paramCount: number;
+  pricing: Pricing;
   seed: number;
   // The accuracy gap between the groups as the system went live; a fairness test would have found it.
   launchGap: number;
 };
 
-export const monthlyCost = (config: DeployConfig, paramCount: number): number =>
-  Math.round(paramCount / 5) + (Object.keys(CONTROL_COST) as (keyof typeof CONTROL_COST)[]).reduce((sum, k) => sum + (config[k] ? CONTROL_COST[k] : 0), 0);
+export const monthlyCompute = (paramCount: number, pricing: Pricing): number => Math.round((paramCount * pricing.compute) / 5);
+
+export const monthlyCost = (config: DeployConfig, paramCount: number, pricing: Pricing = defaultPricing()): number =>
+  monthlyCompute(paramCount, pricing) + CONTROL_KEYS.reduce((sum, k) => sum + (config[k] && !pricing.free.includes(k) ? CONTROL_COST[k] : 0), 0);
 
 export const simulate = (d: Deployment, world: World): DeployResult => {
   const rng = seededRng(d.seed + 977);
@@ -148,7 +158,7 @@ export const simulate = (d: Deployment, world: World): DeployResult => {
       monthIncidents.push({ month, kind: 'operational', text: 'Decisions have quietly slipped below the acceptable mark; nobody was watching the model.', risk: 6, trust: -4, fine: FINES.operational });
     }
     value -= monthIncidents.reduce((s, i) => s + i.fine, 0);
-    const cost = monthlyCost(d.config, paramCount);
+    const cost = monthlyCost(d.config, paramCount, d.pricing);
     incidents.push(...monthIncidents);
     months.push({ month, drift, accuracy: stats.accuracy, gap, recall: m.recall, value, cost, alert, retrained, incidents: monthIncidents });
   }

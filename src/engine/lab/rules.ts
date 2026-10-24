@@ -33,7 +33,8 @@ export type Review = {
 
 export type Source = 'rule' | 'model' | 'human' | 'default';
 
-export type Decision = { source: Source; predicted: 0 | 1; rule: number | null };
+// `overruled`: a reviewer's call that differs from the model's at the threshold.
+export type Decision = { source: Source; predicted: 0 | 1; rule: number | null; overruled?: boolean };
 
 export const MAX_RULES = 5;
 // Accuracy of a reviewer judging blind, and the share of reviews that just follow a shown score.
@@ -108,10 +109,10 @@ export type Routing = { approach: Approach; rules: Rule[]; review: Review; thres
 export const decide = (routing: Routing, scored: Scored[]): Decision[] => {
   const rng = seededRng(routing.seed + 101);
   let reviews = Math.round((routing.review.capacity / 100) * scored.length);
-  const human = (s: Scored): 0 | 1 => {
+  const human = (s: Scored): Decision => {
     const modelSays: 0 | 1 = s.score >= routing.threshold ? 1 : 0;
-    if (routing.review.showScore && rng() < AUTOMATION_BIAS) return modelSays;
-    return rng() < REVIEWER_ACCURACY ? s.label : s.label === 1 ? 0 : 1;
+    const predicted: 0 | 1 = routing.review.showScore && rng() < AUTOMATION_BIAS ? modelSays : rng() < REVIEWER_ACCURACY ? s.label : s.label === 1 ? 0 : 1;
+    return { source: 'human', predicted, rule: null, overruled: predicted !== modelSays };
   };
   return scored.map((s): Decision => {
     if (routing.approach !== 'ml') {
@@ -120,7 +121,7 @@ export const decide = (routing: Routing, scored: Scored[]): Decision[] => {
       if (routing.approach === 'rules') {
         if (reviews > 0) {
           reviews -= 1;
-          return { source: 'human', predicted: human(s), rule: null };
+          return human(s);
         }
         return { source: 'default', predicted: 0, rule: null };
       }
@@ -128,7 +129,7 @@ export const decide = (routing: Routing, scored: Scored[]): Decision[] => {
     const uncertain = Math.abs(s.score - routing.threshold) < routing.review.band / 2;
     if (uncertain && reviews > 0) {
       reviews -= 1;
-      return { source: 'human', predicted: human(s), rule: null };
+      return human(s);
     }
     return { source: 'model', predicted: s.score >= routing.threshold ? 1 : 0, rule: null };
   });
@@ -141,13 +142,15 @@ export type DecisionStats = {
   bySource: Record<Source, number>;
   // Accuracy of the reviewer's own decisions.
   reviewerAccuracy: number;
+  // Reviewer decisions that differed from the model's call: zero when they just follow it.
+  reviewerOverrules: number;
   minorityAccuracy: number;
 };
 
 export const decisionStats = (decisions: Decision[], scored: Scored[]): DecisionStats => {
   const n = Math.max(1, decisions.length);
   const bySource: Record<Source, number> = { rule: 0, model: 0, human: 0, default: 0 };
-  let correct = 0, reviewed = 0, reviewedRight = 0, minority = 0, minorityRight = 0;
+  let correct = 0, reviewed = 0, reviewedRight = 0, overrules = 0, minority = 0, minorityRight = 0;
   decisions.forEach((d, i) => {
     bySource[d.source] += 1;
     const right = d.predicted === scored[i].label;
@@ -155,6 +158,7 @@ export const decisionStats = (decisions: Decision[], scored: Scored[]): Decision
     if (d.source === 'human') {
       reviewed += 1;
       if (right) reviewedRight += 1;
+      if (d.overruled) overrules += 1;
     }
     if (scored[i].group === 1) {
       minority += 1;
@@ -166,6 +170,7 @@ export const decisionStats = (decisions: Decision[], scored: Scored[]): Decision
     explained: (bySource.rule + bySource.human) / n,
     bySource,
     reviewerAccuracy: reviewed ? reviewedRight / reviewed : 0,
+    reviewerOverrules: overrules,
     minorityAccuracy: minority ? minorityRight / minority : 0,
   };
 };

@@ -3,7 +3,7 @@
 // and deploy for six months. A goal judges the result; the lab view draws it.
 
 import { buildDataset, defaultData, drawCases, type DataConfig, type Dataset, type Point } from './dataset';
-import { defaultDeploy, simulate, type DeployConfig, type DeployResult } from './deploy';
+import { defaultDeploy, defaultPricing, monthlyCompute, simulate, type DeployConfig, type DeployResult, type Pricing } from './deploy';
 import { confusion, groupAccuracy, scoreAll, type Confusion, type MetricId, type Scored } from './metrics';
 import { defaultFeatures, defaultModel, trainModel, type Features, type ModelConfig, type TrainResult } from './model';
 import { decide, decisionStats, defaultReview, type Approach, type Decision, type DecisionStats, type Review, type Rule } from './rules';
@@ -35,6 +35,8 @@ export type LabConfig = {
   kpi: MetricId | null;
   deploy: DeployConfig;
   world: WorldConfig;
+  // What the run's upgrades have done to running costs; set when the project is planned.
+  pricing: Pricing;
 };
 
 export type Diagnosis = {
@@ -80,6 +82,7 @@ export const defaultLab = (seed: number): LabConfig => ({
   kpi: null,
   deploy: defaultDeploy(),
   world: { driftPerMonth: 0.2, kgiTarget: 800 },
+  pricing: defaultPricing(),
 });
 
 const last = (r: TrainResult) => r.curve[r.curve.length - 1];
@@ -119,6 +122,8 @@ export const runLab = (config: LabConfig): LabResult => {
     : untrained(trainModel({ ...config.model, epochs: 0 }, config.features, dataset.train, dataset.validation).paramCount);
   const scopeFactor = config.problem.scope === 'general' ? GENERAL_SCOPE_COMPUTE : 1;
   const paramCount = training.paramCount * scopeFactor;
+  // A lab saved before pricing existed runs at list price.
+  const pricing = config.pricing ?? defaultPricing();
   const validation = scoreAll(training.predict, dataset.validation);
   const test = scoreAll(training.predict, dataset.test);
   const routing = { approach: config.approach, rules: config.rules, review: config.review, threshold: config.threshold, seed: config.data.seed };
@@ -128,7 +133,7 @@ export const runLab = (config: LabConfig): LabResult => {
   const trainMeanX = dataset.train.length ? dataset.train.reduce((s, p) => s + p.x, 0) / dataset.train.length : 0;
   const decidedAsScored = decisions.map((d, i) => ({ ...validation[i], score: d.predicted }));
   const deploy = simulate(
-    { config: config.deploy, routing, model: training, paramCount, seed: config.data.seed, launchGap: groupAccuracy(decidedAsScored, 0.5).gap },
+    { config: config.deploy, routing, model: training, paramCount, pricing, seed: config.data.seed, launchGap: groupAccuracy(decidedAsScored, 0.5).gap },
     {
       draw: (n: number, drift: number, rng: () => number): Point[] => drawCases(rng, n, drift, config.data.curvature),
       retrain: (recent: Point[]) => (problemOk ? trainModel(config.model, config.features, recent, dataset.validation) : training),
@@ -153,7 +158,7 @@ export const runLab = (config: LabConfig): LabResult => {
     valLoss: end.val,
     reportedLoss: config.assessOn === 'train' ? end.train : end.val,
     compute: paramCount * training.curve.length,
-    monthlyCompute: Math.round(paramCount / 5),
+    monthlyCompute: monthlyCompute(paramCount, pricing),
     diagnosis: diagnose(training),
     deploy,
   };

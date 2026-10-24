@@ -4,11 +4,13 @@
 // is cleared when the model, as finally deployed, meets the brief's business
 // goal over six simulated months. The project decides nothing about mastery:
 // each goal's outcome is recorded by the store like any answer, and the
-// move-on gate decides whether a met goal is confirmed or the project moves on.
+// move-on gate decides whether a met goal is confirmed or the project moves on,
+// which it does when the learner leaves the debrief.
 
 import { GOALS, STAGES, type Goal, type Stage } from '../data/goals';
 import type { Capability } from '../data/upgrades';
 import { defaultLab, runLab, type LabConfig, type LabResult } from './lab';
+import { CONTROL_KEYS, type ControlKey, type Pricing } from './lab/deploy';
 import { seededRng } from './lstm';
 
 export type ProjectGoal = {
@@ -32,6 +34,8 @@ export type ProjectState = {
   lab: LabConfig;
   // Lab submissions made, which cost compute.
   submissions: number;
+  // The gate said to move on; the project does when the learner leaves the debrief.
+  advanceDue: boolean;
   status: 'active' | 'complete';
 };
 
@@ -44,6 +48,15 @@ export const worldFor = (round: number): LabConfig['world'] => ({
 });
 
 export type Priority = (anchor: string) => number;
+
+// The deployment control each upgrade makes free.
+const FREE_CONTROL: Partial<Record<Capability, ControlKey>> = { freeMonitoring: 'monitoring', freeAudit: 'auditTrail', freeFairness: 'fairnessTesting', freeBackups: 'backups' };
+
+/** What the run's upgrades have done to the lab's running costs. */
+export const pricingFor = (capabilities: Set<Capability>): Pricing => ({
+  compute: capabilities.has('cheapCompute') ? 0.5 : 1,
+  free: CONTROL_KEYS.filter((k) => [...capabilities].some((c) => FREE_CONTROL[c] === k)),
+});
 
 /**
  * Plans a project: for each stage, the goals the run can pose (its capabilities
@@ -61,8 +74,8 @@ export const planProject = (opts: { id: string; round: number; seed: number; cap
       goals.push({ anchor: g.anchor, stage, seed: Math.floor(rng() * 1e9), outcome: 'pending', attempts: 0, misses: 0, confirmations: 0, lastCorrect: false });
     }
   }
-  const lab = { ...defaultLab(opts.seed), world: worldFor(opts.round) };
-  return { id: opts.id, round: opts.round, seed: opts.seed, goals, index: 0, lab, submissions: 0, status: 'active' };
+  const lab = { ...defaultLab(opts.seed), world: worldFor(opts.round), pricing: pricingFor(opts.capabilities) };
+  return { id: opts.id, round: opts.round, seed: opts.seed, goals, index: 0, lab, submissions: 0, advanceDue: false, status: 'active' };
 };
 
 export const currentGoal = (p: ProjectState): { goal: Goal; state: ProjectGoal } | null => {
@@ -91,7 +104,7 @@ export const recordSubmission = (p: ProjectState, lab: LabConfig, met: boolean):
 /** Moves to the next goal; after the last one the project is complete. */
 export const advance = (p: ProjectState): ProjectState => {
   const index = p.index + 1;
-  return index >= p.goals.length ? { ...p, index: p.goals.length - 1, status: 'complete' } : { ...p, index };
+  return index >= p.goals.length ? { ...p, index: p.goals.length - 1, status: 'complete', advanceDue: false } : { ...p, index, advanceDue: false };
 };
 
 /** Parks the current goal (the learner is stuck) and moves on. */

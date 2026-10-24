@@ -1,13 +1,15 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildSceneRequest, startExpedition } from '../../engine/director';
 import { generateOfflineScene } from '../../engine/offline';
 import { defaultLab, runLab, type LabConfig } from '../../engine/lab';
 import { labForCurrent } from '../../engine/project';
 import {
-  answerScene, applyRemote, beginExpedition, buildSavePayload, buildStudyContext, buyRunUpgrade, CAMP_INTERVAL, currentProjectGoal,
-  deferCurrentStep, deferProjectGoal, ensureRun, finishProjectRound, hasUnsavedChanges, markSaved, newSession, recordNote, startNewRun,
+  answerScene, applyRemote, beginExpedition, buildSavePayload, buildStudyContext, buyRunUpgrade, CAMP_INTERVAL, continueProjectGoal, currentProjectGoal,
+  deferCurrentStep, deferProjectGoal, ensureRun, finishProjectRound, hasUnsavedChanges, loadDraft, markSaved, newSession, recordNote, startNewRun,
   startProject, submitGoal, type SessionState,
 } from '../store';
+
+afterEach(() => vi.unstubAllGlobals());
 
 let clock = 0;
 const tick = () => `2026-10-22T10:${String(Math.floor(clock / 60)).padStart(2, '0')}:${String(clock++ % 60).padStart(2, '0')}Z`;
@@ -181,9 +183,27 @@ describe('the run inside a session', () => {
     expect(hit.state.run!.project!.index).toBe(0);
     const again = submit(hit.state, fixed, 'g3');
     expect(again.gate.advance).toBe(true);
-    expect(again.state.run!.project!.index).toBe(1);
-    expect(again.state.run!.project!.lab).toBe(fixed);
+    // The debrief still shows the goal it judged; the project moves on when the learner continues.
+    expect(again.state.run!.project).toMatchObject({ index: 0, advanceDue: true });
+    expect(continueProjectGoal(hit.state).run!.project).toBe(hit.state.run!.project);
+    const moved = continueProjectGoal(again.state);
+    expect(moved.run!.project).toMatchObject({ index: 1, advanceDue: false });
+    expect(moved.run!.project!.lab).toBe(fixed);
+    expect(continueProjectGoal(moved)).toBe(moved);
     expect(again.state.stats.modesUsed).toEqual(['lab']);
+  });
+
+  it('resumes a draft saved during a debrief at the goal the gate had moved on to', () => {
+    const s = startProject(withRun(), 'p1', 7);
+    const cur = currentProjectGoal(s)!;
+    const fixed = cur.goal.solution(labForCurrent(s.run!.project!)!);
+    const due = submit(submit(s, fixed, 'g1').state, fixed, 'g2').state;
+    expect(due.run!.project!.advanceDue).toBe(true);
+    const store: Record<string, string> = { 'isaca-quest-session-v1': JSON.stringify(due) };
+    vi.stubGlobal('localStorage', { getItem: (k: string) => store[k] ?? null });
+    expect(loadDraft()!.run!.project).toMatchObject({ index: 1, advanceDue: false });
+    store['isaca-quest-session-v1'] = JSON.stringify(s);
+    expect(loadDraft()!.run!.project).toMatchObject({ index: 0, advanceDue: false });
   });
 
   it('defers a goal into the rematch queue and closes the project into the run', () => {

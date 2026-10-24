@@ -7,7 +7,7 @@ import type { Capability } from '../data/upgrades';
 import { TERM_BY_ID } from '../data/terms';
 import type { LabConfig, LabResult } from '../engine/lab';
 import type { Sampling } from '../engine/lab/dataset';
-import { APPETITE_LIMIT, CONTROL_COST, type DeployConfig } from '../engine/lab/deploy';
+import { APPETITE_LIMIT, CONTROL_COST, type ControlKey, type DeployConfig } from '../engine/lab/deploy';
 import { METRIC_IDS, type MetricId } from '../engine/lab/metrics';
 import { BATCH_SIZES, HIDDEN_SIZES, L2_STEPS, LEARNING_RATES, MAX_EPOCHS } from '../engine/lab/model';
 import { describeRule, induceRule, KNOWLEDGE_BASE, MAX_RULES, ruleStats, type Approach, type Rule } from '../engine/lab/rules';
@@ -320,7 +320,7 @@ export function DecidePanel({ config, result, caps, onChange, disabled }: PanelP
       <div className="lab-side">
         <p className="small"><strong>Decisions on the 100 validation cases:</strong> accuracy <strong className="mono">{pct(d.accuracy)}</strong>; {pct(d.explained)} explainable
           ({d.bySource.rule} by rule, {d.bySource.human} by a reviewer, {d.bySource.model} by the model, {d.bySource.default} by default).
-          {d.bySource.human > 0 && <> Reviewers {pct(d.reviewerAccuracy)} right.</>} Minority group {pct(d.minorityAccuracy)}.</p>
+          {d.bySource.human > 0 && <> Reviewers {pct(d.reviewerAccuracy)} right, overruling the model on {d.reviewerOverrules}.</>} Minority group {pct(d.minorityAccuracy)}.</p>
         <ScoreStrip result={result} />
         <table className="confusion" aria-label="Confusion matrix of the model's scores at the threshold">
           <thead><tr><th /><th>Predicted +</th><th>Predicted −</th></tr></thead>
@@ -338,18 +338,18 @@ export function DecidePanel({ config, result, caps, onChange, disabled }: PanelP
   );
 }
 
-const CONTROLS: { key: keyof Omit<DeployConfig, 'riskAppetite'>; label: string; term: string; free?: Capability }[] = [
-  { key: 'monitoring', label: 'Monitor the model (drift alerts)', term: 'monitoring', free: 'freeMonitoring' },
+const CONTROLS: { key: ControlKey; label: string; term: string }[] = [
+  { key: 'monitoring', label: 'Monitor the model (drift alerts)', term: 'monitoring' },
   { key: 'retrainOnAlert', label: 'Retrain on an alert', term: 'model-drift' },
   { key: 'oversight', label: 'Human oversight of costly calls', term: 'human-oversight' },
-  { key: 'auditTrail', label: 'Keep an audit trail', term: 'audit-trail', free: 'freeAudit' },
-  { key: 'fairnessTesting', label: 'Fairness testing before launch', term: 'fairness-testing', free: 'freeFairness' },
+  { key: 'auditTrail', label: 'Keep an audit trail', term: 'audit-trail' },
+  { key: 'fairnessTesting', label: 'Fairness testing before launch', term: 'fairness-testing' },
   { key: 'accessControl', label: 'Access control on the case store', term: 'least-privilege' },
-  { key: 'backups', label: 'Backups', term: 'backup', free: 'freeBackups' },
+  { key: 'backups', label: 'Backups', term: 'backup' },
   { key: 'minimization', label: 'Keep only the fields the purpose needs', term: 'data-minimization' },
 ];
 
-export function DeployPanel({ config, result, caps, onChange, disabled }: PanelProps) {
+export function DeployPanel({ config, result, onChange, disabled }: PanelProps) {
   const dc = config.deploy;
   const set = (patch: Partial<DeployConfig>) => onChange({ ...config, deploy: { ...dc, ...patch } });
   const dr = result.deploy;
@@ -359,7 +359,8 @@ export function DeployPanel({ config, result, caps, onChange, disabled }: PanelP
         <fieldset disabled={disabled}>
           <legend><Term id="control">Controls</Term> (cost a month)</legend>
           {CONTROLS.map((c) => {
-            const free = c.free ? caps.has(c.free) : false;
+            // What the run's upgrades made free is priced into the lab, so the label and the cost agree.
+            const free = config.pricing.free.includes(c.key);
             return (
               <label key={c.key} className="check">
                 <input type="checkbox" checked={dc[c.key]} onChange={(e) => set({ [c.key]: e.target.checked })} />

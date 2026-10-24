@@ -603,10 +603,11 @@ export const GOALS: Goal[] = [
     stage: 'decide',
     brief: (b) => `${say(b)}: "Suppose the reviewers see the model's score next to every case and have started agreeing with it, even when it is wrong. Their decisions are no better than the model's. Fix the review."`,
     setup: (lab, seed) => withReview({ ...sound(lab, seed), approach: 'ml' }, { capacity: 30, band: 0.8, showScore: true }),
-    goal: { text: "Reviewers' own decisions at least 85% right, with at least 20 cases reviewed.", met: (r) => r.decided.reviewerAccuracy >= 0.85 && r.decided.bySource.human >= 20 },
+    // Reviewers who follow the score never overrule the model, however good the model happens to be.
+    goal: { text: "Reviewers' own decisions at least 85% right on at least 15 cases, overruling the model's call at least once.", met: (r) => r.decided.reviewerAccuracy >= 0.85 && r.decided.bySource.human >= 15 && r.decided.reviewerOverrules >= 1 },
     solution: (c) => withReview(c, { showScore: false }),
     terms: ['automation-bias', 'hitl', 'human-oversight', 'decision-support'],
-    readout: (r) => `reviewers ${pct(r.decided.reviewerAccuracy)} right on ${r.decided.bySource.human} cases, ${r.config.review.showScore ? 'seeing' : 'not seeing'} the model's score; ${decideRead(r)}`,
+    readout: (r) => `reviewers ${pct(r.decided.reviewerAccuracy)} right on ${r.decided.bySource.human} cases, overruling the model on ${r.decided.reviewerOverrules}, ${r.config.review.showScore ? 'seeing' : 'not seeing'} the model's score; ${decideRead(r)}`,
   },
   {
     anchor: 'explainability',

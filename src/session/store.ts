@@ -214,7 +214,7 @@ export type GoalOutcome = AnswerOutcome & { met: boolean; readout: string };
 /**
  * A lab submission on the project's current goal. The simulation judged it; the
  * evidence is recorded exactly as for a scene answer, and the move-on gate
- * decides whether the project moves to the next goal.
+ * decides whether the project moves to the next goal when the learner continues.
  */
 export const submitGoal = (s: SessionState, g: GoalInput): GoalOutcome => {
   const run = s.run;
@@ -235,9 +235,16 @@ export const submitGoal = (s: SessionState, g: GoalInput): GoalOutcome => {
     model: g.model,
     conceptHistory: state.history.filter((e) => e.concept === cur.goal.anchor),
   });
-  let next = recordSubmission(project, g.lab, met);
-  if (gate.advance) next = advance(next);
+  // The project moves on when the learner leaves the debrief, so the debrief shows the goal it judged.
+  const next = { ...recordSubmission(project, g.lab, met), advanceDue: gate.advance };
   return { points, campDue: state.sinceCamp >= CAMP_INTERVAL, gate, met, readout, state: { ...state, run: { ...run, project: next } } };
+};
+
+/** Leaves the debrief: the project moves on if the gate said so; else the same goal returns, re-seeded. */
+export const continueProjectGoal = (s: SessionState): SessionState => {
+  const project = s.run?.project;
+  if (!s.run || !project?.advanceDue) return s;
+  return { ...s, run: { ...s.run, project: advance(project) } };
 };
 
 /** Parks the project's current goal in the rematch queue and moves on. */
@@ -354,7 +361,9 @@ export const loadDraft = (): SessionState | null => {
     if (parsed.version !== 1 || !parsed.progress || !parsed.stats) return null;
     // Drafts written before the progress model or the run existed lack those fields, and a run saved
     // before projects existed is finished: a new one starts.
-    const run = parsed.run && 'project' in parsed.run ? parsed.run : null;
+    const saved = parsed.run && 'project' in parsed.run ? parsed.run : null;
+    // A draft written during a debrief whose gate had moved on resumes at the next goal.
+    const run = saved?.project?.advanceDue ? { ...saved, project: advance(saved.project) } : saved;
     return { ...parsed, history: parsed.history ?? [], run, expedition: parsed.expedition ?? null };
   } catch {
     return null;
